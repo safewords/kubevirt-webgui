@@ -85,7 +85,9 @@ async fn attach(ctx: Ctx, p: Value) -> RpcResult {
                 selector["deviceName"] = json!(p.device);
             }
 
-            let claim = p.claim.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| format!("{}-{}", p.vm, p.device).chars().take(63).collect::<String>().trim_end_matches('-').to_string());
+            let claim = p.claim.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| {
+                format!("{}-{}", p.vm, p.device).chars().take(63).collect::<String>().trim_end_matches('-').to_string()
+            });
             segment("claim", &claim)?;
             let body = json!({
                 "apiVersion": API,
@@ -129,7 +131,8 @@ async fn detach(ctx: Ctx, p: Value) -> RpcResult {
         TaskTarget { kind: "UsbDeviceClaim".into(), namespace: Some(p.namespace.clone()), name: p.claim.clone() },
         format!("Detach USB claim {}/{}", p.namespace, p.claim),
         move |_task| async move {
-            kube.delete(&ResourceRef::new(API, "usbdeviceclaims").ns(&p.namespace).named(&p.claim).path()?, None).await?;
+            kube.delete(&ResourceRef::new(API, "usbdeviceclaims").ns(&p.namespace).named(&p.claim).path()?, None)
+                .await?;
             Ok(Some("claim deleted; the device is released".into()))
         },
     )

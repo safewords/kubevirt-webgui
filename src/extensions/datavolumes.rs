@@ -40,7 +40,9 @@ pub fn summarize(message: &str) -> String {
     let strip = |line: &str| -> String {
         let line = line.trim();
         match line.find("] ") {
-            Some(i) if line.starts_with(['E', 'W', 'I', 'F']) && line[..i].contains(".go:") => line[i + 2..].trim().to_string(),
+            Some(i) if line.starts_with(['E', 'W', 'I', 'F']) && line[..i].contains(".go:") => {
+                line[i + 2..].trim().to_string()
+            }
             _ => line.to_string(),
         }
     };
@@ -49,7 +51,11 @@ pub fn summarize(message: &str) -> String {
         .iter()
         .filter(|l| {
             let lower = l.to_ascii_lowercase();
-            l.starts_with('E') && l.contains(".go:") || lower.contains("error") || lower.contains("denied") || lower.contains("failed") || lower.contains("unable")
+            l.starts_with('E') && l.contains(".go:")
+                || lower.contains("error")
+                || lower.contains("denied")
+                || lower.contains("failed")
+                || lower.contains("unable")
         })
         // Stack frames repeat the function names; they say nothing a person needs.
         .filter(|l| !l.starts_with("kubevirt.io/") && !l.contains(".go:") || l.contains("] "))
@@ -79,25 +85,28 @@ pub fn hint_for(message: &str, node: &str) -> Option<String> {
 pub async fn worker_trouble(kube: &Kube, namespace: &str, dv: &Value) -> Option<WorkerTrouble> {
     let name = str_at(dv, "/metadata/name");
     let restarts = dv.pointer("/status/restartCount").and_then(Value::as_i64).unwrap_or(0);
-    let running_failed = dv
-        .pointer("/status/conditions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .any(|c| c["type"] == "Running" && c["status"] == "False" && matches!(str_at(c, "/reason"), "Error" | "CrashLoopBackOff" | "ImagePullBackOff" | "ErrImagePull"));
+    let running_failed = dv.pointer("/status/conditions").and_then(Value::as_array).into_iter().flatten().any(|c| {
+        c["type"] == "Running"
+            && c["status"] == "False"
+            && matches!(str_at(c, "/reason"), "Error" | "CrashLoopBackOff" | "ImagePullBackOff" | "ErrImagePull")
+    });
     if restarts == 0 && !running_failed {
         return None;
     }
 
     // CDI's populators work on a "prime" claim named after the target claim's uid.
-    let pvc = kube.get(&ResourceRef::new("v1", "persistentvolumeclaims").ns(namespace).named(name).path().ok()?).await.ok();
+    let pvc =
+        kube.get(&ResourceRef::new("v1", "persistentvolumeclaims").ns(namespace).named(name).path().ok()?).await.ok();
     let mut claims = vec![name.to_string(), format!("{name}-scratch")];
     if let Some(uid) = pvc.as_ref().map(|p| str_at(p, "/metadata/uid")).filter(|u| !u.is_empty()) {
         claims.push(format!("prime-{uid}"));
         claims.push(format!("prime-{uid}-scratch"));
     }
 
-    let path = with_query(&ResourceRef::new("v1", "pods").ns(namespace).path().ok()?, &[("labelSelector", Some("app=containerized-data-importer".into()))]);
+    let path = with_query(
+        &ResourceRef::new("v1", "pods").ns(namespace).path().ok()?,
+        &[("labelSelector", Some("app=containerized-data-importer".into()))],
+    );
     let pods = kube.get(&path).await.ok()?;
     pods.get("items")?.as_array()?.iter().find_map(|pod| {
         let mounts_claim = pod
@@ -110,14 +119,10 @@ pub async fn worker_trouble(kube: &Kube, namespace: &str, dv: &Value) -> Option<
             return None;
         }
         let status = pod.pointer("/status/containerStatuses").and_then(Value::as_array)?.first()?;
-        let raw = [
-            "/lastState/terminated/message",
-            "/state/terminated/message",
-            "/state/waiting/message",
-        ]
-        .iter()
-        .map(|p| str_at(status, p))
-        .find(|m| !m.is_empty())?;
+        let raw = ["/lastState/terminated/message", "/state/terminated/message", "/state/waiting/message"]
+            .iter()
+            .map(|p| str_at(status, p))
+            .find(|m| !m.is_empty())?;
         let node = str_at(pod, "/spec/nodeName").to_string();
         let message = summarize(raw);
         Some(WorkerTrouble {
@@ -144,7 +149,15 @@ pub enum Settled {
 
 /// Follow a DataVolume, logging phase and progress, until it is ready, reaches
 /// one of `stop_at`, fails, or its worker pod keeps failing.
-pub async fn follow(task: &TaskHandle, kube: &Kube, namespace: &str, name: &str, label: &str, stop_at: &[&str], timeout: Duration) -> RpcResult<Settled> {
+pub async fn follow(
+    task: &TaskHandle,
+    kube: &Kube,
+    namespace: &str,
+    name: &str,
+    label: &str,
+    stop_at: &[&str],
+    timeout: Duration,
+) -> RpcResult<Settled> {
     let path = ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(namespace).named(name);
     let started = Instant::now();
     let mut last = String::new();
@@ -152,7 +165,9 @@ pub async fn follow(task: &TaskHandle, kube: &Kube, namespace: &str, name: &str,
     loop {
         let dv = match kube.get(&path.path()?).await {
             Ok(dv) => dv,
-            Err(e) if e.is_not_found() => return Err(RpcError::internal(format!("{label}: the DataVolume disappeared"))),
+            Err(e) if e.is_not_found() => {
+                return Err(RpcError::internal(format!("{label}: the DataVolume disappeared")));
+            }
             Err(e) => return Err(e.into()),
         };
         let phase = str_at(&dv, "/status/phase").to_string();
@@ -189,7 +204,14 @@ pub async fn follow(task: &TaskHandle, kube: &Kube, namespace: &str, name: &str,
         if restarts > reported_restarts {
             reported_restarts = restarts;
             if let Some(trouble) = worker_trouble(kube, namespace, &dv).await {
-                task.log(format!("{label}: CDI pod {} on {} failed ({} restart{}): {}", trouble.pod, trouble.node, trouble.restarts, if trouble.restarts == 1 { "" } else { "s" }, trouble.message));
+                task.log(format!(
+                    "{label}: CDI pod {} on {} failed ({} restart{}): {}",
+                    trouble.pod,
+                    trouble.node,
+                    trouble.restarts,
+                    if trouble.restarts == 1 { "" } else { "s" },
+                    trouble.message
+                ));
                 if let Some(hint) = &trouble.hint {
                     task.log(format!("hint: {hint}"));
                 }
@@ -213,7 +235,8 @@ pub async fn follow(task: &TaskHandle, kube: &Kube, namespace: &str, name: &str,
 
 /// `datavolume.diagnose` — the Disk screen's view of a failing worker pod.
 pub async fn diagnose(kube: &Kube, namespace: &str, name: &str) -> Result<Value, ApiError> {
-    let dv = kube.get(&ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(namespace).named(name).path()?).await?;
+    let dv =
+        kube.get(&ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(namespace).named(name).path()?).await?;
     Ok(json!({ "trouble": worker_trouble(kube, namespace, &dv).await }))
 }
 

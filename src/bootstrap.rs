@@ -2,9 +2,9 @@
 
 use std::sync::Arc;
 
+use rainier_framework::config::Env;
 use rainier_framework::crypt::Encryption;
 use rainier_framework::prelude::*;
-use rainier_framework::config::Env;
 
 use crate::cluster::Cluster;
 use crate::extensions;

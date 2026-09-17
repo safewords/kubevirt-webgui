@@ -50,16 +50,16 @@ pub struct Discovery {
 impl Discovery {
     /// Whether `group/version` serves `resource`.
     pub fn has(&self, api_version: &str, resource: &str) -> bool {
-        self.resources
-            .get(api_version)
-            .is_some_and(|resources| resources.iter().any(|r| r.name == resource))
+        self.resources.get(api_version).is_some_and(|resources| resources.iter().any(|r| r.name == resource))
     }
 
     /// Whether a `group/version/resource` (or `version/resource` for the core
     /// group) requirement is served.
     pub fn serves(&self, requirement: &str) -> bool {
         match requirement.rsplit_once('/') {
-            Some((api_version, resource)) if api_version.contains('/') || api_version == "v1" => self.has(api_version, resource),
+            Some((api_version, resource)) if api_version.contains('/') || api_version == "v1" => {
+                self.has(api_version, resource)
+            }
             // A bare group, or `group/version`.
             _ => self.has_group(requirement.split('/').next().unwrap_or(requirement)),
         }
@@ -81,12 +81,11 @@ const FRESH_FOR: Duration = Duration::from_secs(60);
 impl DiscoveryCache {
     /// Discovery, from the cache when it is fresh.
     pub async fn get(&self, kube: &Kube, refresh: bool) -> Result<Arc<Discovery>, ApiError> {
-        if !refresh {
-            if let Some((at, discovery)) = self.cached.read().await.as_ref() {
-                if at.elapsed() < FRESH_FOR {
-                    return Ok(discovery.clone());
-                }
-            }
+        if !refresh
+            && let Some((at, discovery)) = self.cached.read().await.as_ref()
+            && at.elapsed() < FRESH_FOR
+        {
+            return Ok(discovery.clone());
         }
 
         let discovery = Arc::new(discover(kube).await?);
@@ -98,10 +97,10 @@ impl DiscoveryCache {
     /// that found something missing and wants to rule out a stale cache
     /// without letting a client force a rescan on every request.
     pub async fn refresh_unless_recent(&self, kube: &Kube, min_age: Duration) -> Result<Arc<Discovery>, ApiError> {
-        if let Some((at, discovery)) = self.cached.read().await.as_ref() {
-            if at.elapsed() < min_age {
-                return Ok(discovery.clone());
-            }
+        if let Some((at, discovery)) = self.cached.read().await.as_ref()
+            && at.elapsed() < min_age
+        {
+            return Ok(discovery.clone());
         }
         self.get(kube, true).await
     }
@@ -141,16 +140,13 @@ async fn discover(kube: &Kube) -> Result<Discovery, ApiError> {
 
     let mut groups = Vec::new();
     for group in groups_list.get("groups").and_then(Value::as_array).into_iter().flatten() {
-        let Some(name) = group.get("name").and_then(Value::as_str) else { continue };
+        let Some(name) = group.get("name").and_then(Value::as_str) else {
+            continue;
+        };
         let versions: Vec<String> = group
             .get("versions")
             .and_then(Value::as_array)
-            .map(|v| {
-                v.iter()
-                    .filter_map(|v| v.get("version").and_then(Value::as_str))
-                    .map(String::from)
-                    .collect()
-            })
+            .map(|v| v.iter().filter_map(|v| v.get("version").and_then(Value::as_str)).map(String::from).collect())
             .unwrap_or_default();
         let preferred = group
             .pointer("/preferredVersion/version")

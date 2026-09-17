@@ -15,8 +15,12 @@ pub fn set_plugin_dir(dir: Option<std::path::PathBuf>) {
 
 /// The plugin modules in the plugin directory, as URLs the browser imports.
 pub fn discovered_plugins() -> Vec<String> {
-    let Some(Some(dir)) = PLUGIN_DIR.get() else { return Vec::new() };
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Some(Some(dir)) = PLUGIN_DIR.get() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut urls: Vec<String> = entries
         .filter_map(|e| e.ok())
         .filter_map(|e| e.file_name().into_string().ok())
@@ -42,7 +46,11 @@ async fn plugin_file(path: &str) -> Option<Response> {
     }
     let bytes = tokio::fs::read(dir.join(path)).await.ok()?;
     let mime = mime_guess::from_path(path).first_or_octet_stream();
-    let mime = if path.ends_with(".mjs") || path.ends_with(".js") { "text/javascript; charset=utf-8".to_string() } else { mime.to_string() };
+    let mime = if path.ends_with(".mjs") || path.ends_with(".js") {
+        "text/javascript; charset=utf-8".to_string()
+    } else {
+        mime.to_string()
+    };
     Some(secured(Response::ok(bytes).with_content_type(&mime).with_header("cache-control", "no-cache")))
 }
 
@@ -50,21 +58,6 @@ async fn plugin_file(path: &str) -> Option<Response> {
 #[folder = "web/dist/"]
 #[allow_missing = true]
 struct Assets;
-
-#[cfg(test)]
-mod tests {
-    use super::safe_plugin_path;
-
-    #[test]
-    fn plugin_paths_cannot_escape_the_directory() {
-        assert!(safe_plugin_path("backups.js"));
-        assert!(safe_plugin_path("vendor/chart.js"));
-        assert!(!safe_plugin_path("../secrets.js"));
-        assert!(!safe_plugin_path("a/../../b.js"));
-        assert!(!safe_plugin_path("/etc/passwd"));
-        assert!(!safe_plugin_path("x%2e%2e/y.js"));
-    }
-}
 
 fn secured(response: Response) -> Response {
     response
@@ -93,9 +86,7 @@ pub async fn serve(request: Req) -> Response {
         // Vite fingerprints everything under `assets/`, so those never change.
         let cache = if path.starts_with("assets/") { "public, max-age=31536000, immutable" } else { "no-cache" };
         return secured(
-            Response::ok(file.data.into_owned())
-                .with_content_type(mime.as_ref())
-                .with_header("cache-control", cache),
+            Response::ok(file.data.into_owned()).with_content_type(mime.as_ref()).with_header("cache-control", cache),
         );
     }
 
@@ -114,5 +105,20 @@ pub async fn serve(request: Req) -> Response {
         None => Response::new(StatusCode::SERVICE_UNAVAILABLE)
             .with_content_type("text/plain; charset=utf-8")
             .with_body("The web interface has not been built. Run `npm run build` in `web/`."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_plugin_path;
+
+    #[test]
+    fn plugin_paths_cannot_escape_the_directory() {
+        assert!(safe_plugin_path("backups.js"));
+        assert!(safe_plugin_path("vendor/chart.js"));
+        assert!(!safe_plugin_path("../secrets.js"));
+        assert!(!safe_plugin_path("a/../../b.js"));
+        assert!(!safe_plugin_path("/etc/passwd"));
+        assert!(!safe_plugin_path("x%2e%2e/y.js"));
     }
 }

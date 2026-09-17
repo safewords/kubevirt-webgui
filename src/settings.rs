@@ -38,12 +38,7 @@ pub struct Settings {
 }
 
 fn list(env: &Env, key: &str) -> Vec<String> {
-    env.string(key, "")
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-        .collect()
+    env.string(key, "").split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
 }
 
 fn optional(env: &Env, key: &str) -> Option<String> {

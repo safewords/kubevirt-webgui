@@ -94,9 +94,13 @@ pub enum UploadState {
     /// CDI is starting its upload server.
     Preparing,
     /// The upload token is issued; the browser may send.
-    Ready { token: String },
+    Ready {
+        token: String,
+    },
     /// Bytes are flowing.
-    Uploading { sent: u64 },
+    Uploading {
+        sent: u64,
+    },
     /// Every byte was accepted by the upload proxy.
     Finished,
     Failed(String),
@@ -188,7 +192,8 @@ impl Uploads {
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
-type UploadBody = StreamBody<std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Frame<Bytes>, std::io::Error>> + Send>>>;
+type UploadBody =
+    StreamBody<std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Frame<Bytes>, std::io::Error>> + Send>>>;
 
 /// An open upload request: chunks go in `body`, the proxy's answer comes out
 /// of `response`. Dropping `body` ends the request; sending an `Err` aborts it
@@ -226,13 +231,14 @@ async fn trust_anchors(config: &UploadConfig, kube: &Kube) -> Vec<CertificateDer
     let pem = match &config.ca_file {
         Some(file) => std::fs::read(file).ok(),
         None => {
-            let path = ResourceRef::new("v1", "configmaps").ns(&config.cdi_namespace).named("cdi-uploadproxy-signer-bundle").path();
+            let path = ResourceRef::new("v1", "configmaps")
+                .ns(&config.cdi_namespace)
+                .named("cdi-uploadproxy-signer-bundle")
+                .path();
             match path {
-                Ok(path) => kube
-                    .get(&path)
-                    .await
-                    .ok()
-                    .and_then(|cm| cm.pointer("/data/ca-bundle.crt").and_then(Value::as_str).map(|s| s.as_bytes().to_vec())),
+                Ok(path) => kube.get(&path).await.ok().and_then(|cm| {
+                    cm.pointer("/data/ca-bundle.crt").and_then(Value::as_str).map(|s| s.as_bytes().to_vec())
+                }),
                 Err(_) => None,
             }
         }
@@ -262,11 +268,21 @@ mod insecure {
             Ok(ServerCertVerified::assertion())
         }
 
-        fn verify_tls12_signature(&self, message: &[u8], cert: &CertificateDer<'_>, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+        fn verify_tls12_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
             rustls::crypto::verify_tls12_signature(message, cert, dss, &self.0)
         }
 
-        fn verify_tls13_signature(&self, message: &[u8], cert: &CertificateDer<'_>, dss: &DigitallySignedStruct) -> Result<HandshakeSignatureValid, rustls::Error> {
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
             rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0)
         }
 
@@ -294,14 +310,21 @@ fn tls_config(anchors: &[CertificateDer<'static>], strict: bool) -> Result<(rust
     }
     let config = builder
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(insecure::AnyCertificate(provider.signature_verification_algorithms)))
+        .with_custom_certificate_verifier(Arc::new(insecure::AnyCertificate(
+            provider.signature_verification_algorithms,
+        )))
         .with_no_client_auth();
     Ok((config, false))
 }
 
 /// Open the upload request for `token`, streaming its body from the returned
 /// sender. Without a `content_length` the body is sent chunked.
-pub async fn open_upstream(config: &UploadConfig, kube: &Kube, token: &str, content_length: Option<u64>) -> Result<Upstream, String> {
+pub async fn open_upstream(
+    config: &UploadConfig,
+    kube: &Kube,
+    token: &str,
+    content_length: Option<u64>,
+) -> Result<Upstream, String> {
     let (io, host, route): (Box<dyn Io>, String, String) = match &config.proxy_url {
         Some(url) => {
             let uri: http::Uri = url.parse().map_err(|e| format!("CDI_UPLOAD_PROXY_URL is not a URL: {e}"))?;
@@ -342,7 +365,11 @@ pub async fn open_upstream(config: &UploadConfig, kube: &Kube, token: &str, cont
             tokio::spawn(async move {
                 let _ = forwarder.join().await;
             });
-            (Box::new(stream), format!("cdi-uploadproxy.{namespace}.svc"), format!("via a port-forward to {namespace}/{pod}"))
+            (
+                Box::new(stream),
+                format!("cdi-uploadproxy.{namespace}.svc"),
+                format!("via a port-forward to {namespace}/{pod}"),
+            )
         }
     };
 
@@ -444,7 +471,13 @@ impl WebSocketHandler for UploadProxy {
         };
         tracing::info!(user = %session.user, namespace = %session.namespace, disk = %session.name, bytes = session.size, "upload opened");
 
-        let active = Arc::new(tokio::sync::Mutex::new(Active { session: session.clone(), upstream: None, received: 0, finished: false, prepare: None }));
+        let active = Arc::new(tokio::sync::Mutex::new(Active {
+            session: session.clone(),
+            upstream: None,
+            received: 0,
+            finished: false,
+            prepare: None,
+        }));
         self.active.lock().unwrap().insert(socket.id(), active.clone());
 
         // Waiting for CDI can take minutes; it happens off the socket's read
@@ -454,10 +487,13 @@ impl WebSocketHandler for UploadProxy {
         let prepare = tokio::spawn(async move {
             let _ = browser.send_json(&json!({ "status": "preparing" }));
             let mut states = session.watch();
-            let ready = tokio::time::timeout(READY_TIMEOUT, states.wait_for(|s| matches!(s, UploadState::Ready { .. } | UploadState::Failed(_))))
-                .await
-                .ok()
-                .and_then(|r| r.ok().map(|state| state.clone()));
+            let ready = tokio::time::timeout(
+                READY_TIMEOUT,
+                states.wait_for(|s| matches!(s, UploadState::Ready { .. } | UploadState::Failed(_))),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok().map(|state| state.clone()));
             let token = match ready {
                 Some(UploadState::Ready { token }) => token,
                 Some(UploadState::Failed(reason)) => return fail(&browser, &session, &reason),
@@ -479,7 +515,9 @@ impl WebSocketHandler for UploadProxy {
     }
 
     async fn on_message(&self, socket: &Socket, message: Message) -> RainierResult<()> {
-        let Some(active) = self.active.lock().unwrap().get(&socket.id()).cloned() else { return Ok(()) };
+        let Some(active) = self.active.lock().unwrap().get(&socket.id()).cloned() else {
+            return Ok(());
+        };
         let mut active = active.lock().await;
         if active.finished {
             return Ok(());
@@ -512,7 +550,10 @@ impl WebSocketHandler for UploadProxy {
                 }
             }
             Message::Text(text) => {
-                let done = serde_json::from_str::<Value>(&text).ok().and_then(|v| v.get("done").and_then(Value::as_bool)).unwrap_or(false);
+                let done = serde_json::from_str::<Value>(&text)
+                    .ok()
+                    .and_then(|v| v.get("done").and_then(Value::as_bool))
+                    .unwrap_or(false);
                 if done {
                     if active.received != active.session.size {
                         let (received, size, session) = (active.received, active.session.size, active.session.clone());
@@ -528,7 +569,9 @@ impl WebSocketHandler for UploadProxy {
     }
 
     async fn on_close(&self, socket: &Socket) {
-        let Some(active) = self.active.lock().unwrap().remove(&socket.id()) else { return };
+        let Some(active) = self.active.lock().unwrap().remove(&socket.id()) else {
+            return;
+        };
         let mut active = active.lock().await;
         if let Some(prepare) = active.prepare.take() {
             prepare.abort();

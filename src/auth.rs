@@ -93,28 +93,27 @@ impl Auth {
         if matches!(credential, Credential::Server) && !self.settings.allow_server_identity {
             return Err(ApiError::new(403, "Forbidden", "signing in with the server's identity is disabled"));
         }
-        if let Credential::Token { token } = &credential {
-            if token.trim().is_empty() || token.len() > 16 * 1024 {
-                return Err(ApiError::new(401, "Unauthorized", "a token is required"));
-            }
+        if let Credential::Token { token } = &credential
+            && (token.trim().is_empty() || token.len() > 16 * 1024)
+        {
+            return Err(ApiError::new(401, "Unauthorized", "a token is required"));
         }
 
         let kube = self.cluster.client_for(&credential)?;
         let user = whoami(&kube, &credential).await?;
 
         let now = chrono::Utc::now().timestamp();
-        let claims = Claims {
-            credential,
-            user,
-            issued: now,
-            expires: now + self.settings.session_ttl.as_secs() as i64,
-        };
+        let claims =
+            Claims { credential, user, issued: now, expires: now + self.settings.session_ttl.as_secs() as i64 };
         let ticket = self
             .crypt()?
             .encrypt_json(&claims)
             .map_err(|e| ApiError::new(500, "InternalError", format!("could not issue a ticket: {}", e.message())))?;
 
-        Ok((ticket, Arc::new(Session { user: claims.user, credential: claims.credential, kube, expires: claims.expires })))
+        Ok((
+            ticket,
+            Arc::new(Session { user: claims.user, credential: claims.credential, kube, expires: claims.expires }),
+        ))
     }
 
     /// Resume from a ticket, without asking the API server again.
@@ -174,26 +173,27 @@ async fn whoami(kube: &Kube, credential: &Credential) -> Result<UserInfo, ApiErr
                 "kind": "SelfSubjectRulesReview",
                 "spec": { "namespace": "default" }
             });
-            kube.post("/apis/authorization.k8s.io/v1/selfsubjectrulesreviews", &probe)
-                .await
-                .map_err(|e| if e.status == 401 { ApiError::new(401, "Unauthorized", "the cluster did not accept that token") } else { e })?;
+            kube.post("/apis/authorization.k8s.io/v1/selfsubjectrulesreviews", &probe).await.map_err(|e| {
+                if e.status == 401 {
+                    ApiError::new(401, "Unauthorized", "the cluster did not accept that token")
+                } else {
+                    e
+                }
+            })?;
             UserInfo { username: String::from("(unknown)"), ..Default::default() }
         }
         Err(e) => return Err(e),
     };
 
-    if let Credential::Token { token } = credential {
-        if let Some(claims) = jwt_claims(token) {
-            if user.username.is_empty() || user.username == "(unknown)" {
-                if let Some(sub) = claims.get("sub").and_then(Value::as_str) {
-                    user.username = sub.to_string();
-                }
-            }
-            user.home_namespace = claims
-                .pointer("/kubernetes.io/namespace")
-                .and_then(Value::as_str)
-                .map(String::from);
+    if let Credential::Token { token } = credential
+        && let Some(claims) = jwt_claims(token)
+    {
+        if (user.username.is_empty() || user.username == "(unknown)")
+            && let Some(sub) = claims.get("sub").and_then(Value::as_str)
+        {
+            user.username = sub.to_string();
         }
+        user.home_namespace = claims.pointer("/kubernetes.io/namespace").and_then(Value::as_str).map(String::from);
     }
     if user.home_namespace.is_none() {
         // `system:serviceaccount:<namespace>:<name>`

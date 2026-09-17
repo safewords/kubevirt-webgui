@@ -14,9 +14,7 @@ pub fn valid_segment(segment: &str) -> bool {
         && segment.len() <= 253
         && segment != "."
         && segment != ".."
-        && segment
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | ':' | '@' | '+'))
+        && segment.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | ':' | '@' | '+'))
 }
 
 /// Reject an unsafe path segment with a client error.
@@ -63,7 +61,7 @@ impl ResourceRef {
     }
 
     /// This subresource of the object.
-    pub fn sub(mut self, subresource: impl Into<String>) -> Self {
+    pub fn subresource(mut self, subresource: impl Into<String>) -> Self {
         self.subresource = Some(subresource.into());
         self
     }
@@ -100,11 +98,9 @@ impl ResourceRef {
 pub fn api_base(api_version: &str) -> Result<String, ApiError> {
     match api_version.split_once('/') {
         None => Ok(format!("/api/{}", segment("apiVersion", api_version)?)),
-        Some((group, version)) => Ok(format!(
-            "/apis/{}/{}",
-            segment("apiVersion", group)?,
-            segment("apiVersion", version)?
-        )),
+        Some((group, version)) => {
+            Ok(format!("/apis/{}/{}", segment("apiVersion", group)?, segment("apiVersion", version)?))
+        }
     }
 }
 
@@ -112,9 +108,7 @@ pub fn api_base(api_version: &str) -> Result<String, ApiError> {
 pub fn with_query(path: &str, params: &[(&str, Option<String>)]) -> String {
     let query: Vec<String> = params
         .iter()
-        .filter_map(|(key, value)| {
-            value.as_ref().map(|value| format!("{key}={}", urlencoding::encode(value)))
-        })
+        .filter_map(|(key, value)| value.as_ref().map(|value| format!("{key}={}", urlencoding::encode(value))))
         .collect();
 
     if query.is_empty() { path.to_string() } else { format!("{path}?{}", query.join("&")) }
@@ -132,11 +126,8 @@ mod tests {
         let start = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines")
             .ns("vms")
             .named("db")
-            .sub("start");
-        assert_eq!(
-            start.path().unwrap(),
-            "/apis/subresources.kubevirt.io/v1/namespaces/vms/virtualmachines/db/start"
-        );
+            .subresource("start");
+        assert_eq!(start.path().unwrap(), "/apis/subresources.kubevirt.io/v1/namespaces/vms/virtualmachines/db/start");
     }
 
     #[test]

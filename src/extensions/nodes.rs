@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::cluster::paths::{ResourceRef, segment, with_query};
 use crate::cluster::PatchKind;
+use crate::cluster::paths::{ResourceRef, segment, with_query};
 use crate::rpc::{Ctx, Extension, ExtensionManifest, Registry, RpcError, RpcResult, params};
 use crate::tasks::TaskTarget;
 
@@ -49,11 +49,16 @@ async fn cordon(ctx: Ctx, p: Value, unschedulable: bool) -> RpcResult {
     segment("name", &p.name)?;
     let kube = ctx.kube()?;
     let verb = if unschedulable { "Cordon" } else { "Uncordon" };
-    ctx.task(if unschedulable { "node.cordon" } else { "node.uncordon" }, node_target(&p.name), format!("{verb} {}", p.name), move |_task| async move {
-        let path = ResourceRef::new("v1", "nodes").named(&p.name).path()?;
-        kube.patch(&path, &json!({ "spec": { "unschedulable": unschedulable } }), PatchKind::Merge).await?;
-        Ok(Some(if unschedulable { "node cordoned".into() } else { "node schedulable again".into() }))
-    })
+    ctx.task(
+        if unschedulable { "node.cordon" } else { "node.uncordon" },
+        node_target(&p.name),
+        format!("{verb} {}", p.name),
+        move |_task| async move {
+            let path = ResourceRef::new("v1", "nodes").named(&p.name).path()?;
+            kube.patch(&path, &json!({ "spec": { "unschedulable": unschedulable } }), PatchKind::Merge).await?;
+            Ok(Some(if unschedulable { "node cordoned".into() } else { "node schedulable again".into() }))
+        },
+    )
 }
 
 fn str_at<'a>(value: &'a Value, pointer: &str) -> &'a str {
@@ -67,7 +72,12 @@ async fn drain(ctx: Ctx, p: Value) -> RpcResult {
 
     ctx.task("node.drain", node_target(&p.name), format!("Drain {}", p.name), move |task| async move {
         let node = p.name.as_str();
-        kube.patch(&ResourceRef::new("v1", "nodes").named(node).path()?, &json!({ "spec": { "unschedulable": true } }), PatchKind::Merge).await?;
+        kube.patch(
+            &ResourceRef::new("v1", "nodes").named(node).path()?,
+            &json!({ "spec": { "unschedulable": true } }),
+            PatchKind::Merge,
+        )
+        .await?;
         task.log(format!("cordoned {node}"));
 
         let vmis = kube
@@ -97,7 +107,13 @@ async fn drain(ctx: Ctx, p: Value) -> RpcResult {
                         "metadata": { "generateName": format!("{name}-drain-"), "namespace": ns },
                         "spec": { "vmiName": name }
                     });
-                    match kube.post(&ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(&ns).path()?, &body).await {
+                    match kube
+                        .post(
+                            &ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(&ns).path()?,
+                            &body,
+                        )
+                        .await
+                    {
                         Ok(created) => {
                             let migration = str_at(&created, "/metadata/name").to_string();
                             task.log(format!("{ns}/{name}: live migration {migration} started"));
@@ -111,7 +127,9 @@ async fn drain(ctx: Ctx, p: Value) -> RpcResult {
                 }
                 other => {
                     stuck += 1;
-                    let reason = other.map(|c| str_at(&c, "/message").to_string()).unwrap_or_else(|| "not live-migratable".into());
+                    let reason = other
+                        .map(|c| str_at(&c, "/message").to_string())
+                        .unwrap_or_else(|| "not live-migratable".into());
                     task.log(format!("{ns}/{name}: cannot live-migrate ({reason})"));
                 }
             }
@@ -126,7 +144,8 @@ async fn drain(ctx: Ctx, p: Value) -> RpcResult {
             tokio::time::sleep(Duration::from_secs(3)).await;
             let mut still = Vec::new();
             for (ns, name, migration) in pending {
-                let path = ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(&ns).named(&migration);
+                let path =
+                    ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(&ns).named(&migration);
                 match kube.get(&path.path()?).await.map(|m| str_at(&m, "/status/phase").to_string()) {
                     Ok(phase) if phase == "Succeeded" => task.log(format!("{ns}/{name}: migrated")),
                     Ok(phase) if phase == "Failed" => {
@@ -145,7 +164,10 @@ async fn drain(ctx: Ctx, p: Value) -> RpcResult {
 
         if p.evict_pods {
             let pods = kube
-                .get(&with_query(&ResourceRef::new("v1", "pods").path()?, &[("fieldSelector", Some(format!("spec.nodeName={node}")))]))
+                .get(&with_query(
+                    &ResourceRef::new("v1", "pods").path()?,
+                    &[("fieldSelector", Some(format!("spec.nodeName={node}")))],
+                ))
                 .await?;
             for pod in pods.get("items").and_then(Value::as_array).into_iter().flatten() {
                 let ns = str_at(pod, "/metadata/namespace");
@@ -164,7 +186,7 @@ async fn drain(ctx: Ctx, p: Value) -> RpcResult {
                     "kind": "Eviction",
                     "metadata": { "name": name, "namespace": ns }
                 });
-                let path = ResourceRef::new("v1", "pods").ns(ns).named(name).sub("eviction").path()?;
+                let path = ResourceRef::new("v1", "pods").ns(ns).named(name).subresource("eviction").path()?;
                 match kube.post(&path, &eviction).await {
                     Ok(_) => task.log(format!("evicted pod {ns}/{name}")),
                     Err(e) => task.log(format!("could not evict pod {ns}/{name}: {}", e.message)),

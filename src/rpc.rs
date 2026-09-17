@@ -211,9 +211,11 @@ impl Registry {
         extension.register(self);
 
         let mut manifest = manifest;
-        manifest.methods = self.methods.iter().filter(|(_, m)| m.extension == manifest.id).map(|(k, _)| k.clone()).collect();
+        manifest.methods =
+            self.methods.iter().filter(|(_, m)| m.extension == manifest.id).map(|(k, _)| k.clone()).collect();
         manifest.methods.sort();
-        manifest.topics = self.topics.iter().filter(|(_, t)| t.extension == manifest.id).map(|(k, _)| k.clone()).collect();
+        manifest.topics =
+            self.topics.iter().filter(|(_, t)| t.extension == manifest.id).map(|(k, _)| k.clone()).collect();
         manifest.topics.sort();
         tracing::info!(extension = %manifest.id, methods = manifest.methods.len(), topics = manifest.topics.len(), "extension installed");
         self.extensions.insert(manifest.id.clone(), manifest);
@@ -268,7 +270,9 @@ impl Registry {
     /// metrics-server. Integrations are optional: an absent one is an
     /// explanation, not a 404 from somewhere deep in the API server.
     async fn ensure_available(&self, ctx: &Ctx, extension: &str) -> RpcResult<()> {
-        let Some(manifest) = self.extensions.get(extension) else { return Ok(()) };
+        let Some(manifest) = self.extensions.get(extension) else {
+            return Ok(());
+        };
         if manifest.requires.is_empty() {
             return Ok(());
         }
@@ -278,8 +282,10 @@ impl Registry {
             return Ok(());
         }
         // Installed a moment ago? Look again before refusing.
-        let discovery = ctx.state.cluster.discovery.refresh_unless_recent(&kube, std::time::Duration::from_secs(15)).await?;
-        let missing: Vec<&str> = manifest.requires.iter().filter(|r| !discovery.serves(r)).map(String::as_str).collect();
+        let discovery =
+            ctx.state.cluster.discovery.refresh_unless_recent(&kube, std::time::Duration::from_secs(15)).await?;
+        let missing: Vec<&str> =
+            manifest.requires.iter().filter(|r| !discovery.serves(r)).map(String::as_str).collect();
         if missing.is_empty() {
             return Ok(());
         }
@@ -306,11 +312,8 @@ impl Registry {
 
     /// Run a topic until it ends.
     pub async fn subscribe(&self, ctx: Ctx, topic: &str, params: Value, sink: Sink) -> RpcResult<()> {
-        let entry = self
-            .topics
-            .get(topic)
-            .cloned()
-            .ok_or_else(|| RpcError::not_found(format!("no such topic: {topic}")))?;
+        let entry =
+            self.topics.get(topic).cloned().ok_or_else(|| RpcError::not_found(format!("no such topic: {topic}")))?;
         ctx.session()?;
         self.ensure_available(&ctx, &entry.extension).await?;
         (entry.handler)(ctx, params, sink).await

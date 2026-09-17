@@ -56,7 +56,9 @@ fn usage(object: &Value) -> (f64, f64, i64) {
 
 /// The running launcher pod of a VMI.
 async fn launcher_pod(kube: &Kube, namespace: &str, name: &str) -> Result<Option<String>, ApiError> {
-    let vmi = kube.get(&ResourceRef::new("kubevirt.io/v1", "virtualmachineinstances").ns(namespace).named(name).path()?).await?;
+    let vmi = kube
+        .get(&ResourceRef::new("kubevirt.io/v1", "virtualmachineinstances").ns(namespace).named(name).path()?)
+        .await?;
     let uid = vmi.pointer("/metadata/uid").and_then(Value::as_str).unwrap_or_default();
     let node = vmi.pointer("/status/nodeName").and_then(Value::as_str).unwrap_or_default();
     let pods = kube
@@ -76,7 +78,12 @@ async fn launcher_pod(kube: &Kube, namespace: &str, name: &str) -> Result<Option
         .map(String::from))
 }
 
-async fn stream(ctx: Ctx, sink: Sink, key: String, mut fetch: impl FnMut(Kube) -> futures_util::future::BoxFuture<'static, Result<Option<Sample>, ApiError>>) -> RpcResult<()> {
+async fn stream(
+    ctx: Ctx,
+    sink: Sink,
+    key: String,
+    mut fetch: impl FnMut(Kube) -> futures_util::future::BoxFuture<'static, Result<Option<Sample>, ApiError>>,
+) -> RpcResult<()> {
     let kube = ctx.kube()?;
     let mut sent_history = false;
     let mut last_ts = 0i64;

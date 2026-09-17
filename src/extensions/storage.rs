@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::cluster::paths::{ResourceRef, segment};
 use crate::cluster::Kube;
+use crate::cluster::paths::{ResourceRef, segment};
 use crate::gateway::upload::{UploadSession, UploadState, uploads};
 use crate::rpc::{Ctx, Extension, ExtensionManifest, Registry, RpcError, RpcResult, params};
 use crate::tasks::{TaskHandle, TaskTarget};
@@ -75,7 +75,6 @@ fn str_at<'a>(value: &'a Value, pointer: &str) -> &'a str {
     value.pointer(pointer).and_then(Value::as_str).unwrap_or_default()
 }
 
-
 /// Why a DataVolume's CDI pod is failing, if it is: `{ trouble: { pod, node, restarts, message, hint } | null }`.
 async fn diagnose(ctx: Ctx, p: Value) -> RpcResult {
     #[derive(Deserialize)]
@@ -113,7 +112,11 @@ async fn begin(ctx: Ctx, p: Value) -> RpcResult {
 
     let mut labels = p.labels.clone().unwrap_or_default();
     labels.insert("kubevirt-webgui/image-type".into(), json!(image_type));
-    let storage = p.disk_size.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| format!("{}Gi", claim_size(p.size) / GIB));
+    let storage = p
+        .disk_size
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("{}Gi", claim_size(p.size) / GIB));
     let mut spec = json!({
         "source": { "upload": {} },
         "contentType": "kubevirt",
@@ -170,7 +173,13 @@ pub async fn upload_token(kube: &Kube, ns: &str, pvc: &str) -> RpcResult<String>
     Ok(token)
 }
 
-async fn run(task: &TaskHandle, kube: &Kube, upload: &UploadSession, body: &Value, storage: &str) -> RpcResult<Option<String>> {
+async fn run(
+    task: &TaskHandle,
+    kube: &Kube,
+    upload: &UploadSession,
+    body: &Value,
+    storage: &str,
+) -> RpcResult<Option<String>> {
     let ns = upload.namespace.as_str();
     let collection = ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(ns);
     kube.post(&collection.path()?, body).await?;
@@ -195,8 +204,12 @@ async fn run(task: &TaskHandle, kube: &Kube, upload: &UploadSession, body: &Valu
     };
     match settled {
         Settled::Reached(_) => {}
-        Settled::Ready(phase) if phase == "Succeeded" => return Err(RpcError::new(409, "Conflict", "the DataVolume has already been filled")),
-        Settled::Ready(phase) => return Err(RpcError::internal(format!("CDI did not start an upload server (DataVolume {phase})"))),
+        Settled::Ready(phase) if phase == "Succeeded" => {
+            return Err(RpcError::new(409, "Conflict", "the DataVolume has already been filled"));
+        }
+        Settled::Ready(phase) => {
+            return Err(RpcError::internal(format!("CDI did not start an upload server (DataVolume {phase})")));
+        }
     }
 
     // 2. A token that lets exactly this claim be written.

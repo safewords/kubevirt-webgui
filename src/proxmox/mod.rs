@@ -40,7 +40,9 @@ fn in_network(ip: IpAddr, network: IpAddr, prefix: u8) -> bool {
             let mask = if prefix == 0 { 0 } else { u128::MAX << (128 - prefix) };
             u128::from(ip) & mask == u128::from(net) & mask
         }
-        (IpAddr::V6(ip), IpAddr::V4(_)) => ip.to_ipv4_mapped().is_some_and(|v4| in_network(IpAddr::V4(v4), network, prefix)),
+        (IpAddr::V6(ip), IpAddr::V4(_)) => {
+            ip.to_ipv4_mapped().is_some_and(|v4| in_network(IpAddr::V4(v4), network, prefix))
+        }
         _ => false,
     }
 }
@@ -90,10 +92,16 @@ impl AllowList {
             return Err("importing from Proxmox is not enabled on this server: an administrator sets PROXMOX_ALLOWED_HOSTS to the Proxmox hosts (names, addresses or CIDR ranges) it may connect to".into());
         }
         let host = host.trim().trim_start_matches('[').trim_end_matches(']');
-        if host.is_empty() || host.len() > 253 || host.chars().any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_'))) {
+        if host.is_empty()
+            || host.len() > 253
+            || host.chars().any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '_')))
+        {
             return Err(format!("`{host}` is not a host name or address"));
         }
-        let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await.map_err(|e| format!("could not resolve {host}: {e}"))?.collect();
+        let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
+            .await
+            .map_err(|e| format!("could not resolve {host}: {e}"))?
+            .collect();
         addresses
             .iter()
             .find(|addr| self.allows(host, addr.ip()))
@@ -104,12 +112,17 @@ impl AllowList {
 
 /// A Proxmox node name, VM id or storage id as it may appear in a command.
 pub fn valid_name(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128 && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) && !value.starts_with(['-', '.'])
+    !value.is_empty()
+        && value.len() <= 128
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && !value.starts_with(['-', '.'])
 }
 
 /// A volume id: `storage:volume`, with the characters Proxmox uses in volume names.
 pub fn valid_volid(value: &str) -> bool {
-    let Some((storage, volume)) = value.split_once(':') else { return false };
+    let Some((storage, volume)) = value.split_once(':') else {
+        return false;
+    };
     valid_name(storage)
         && !volume.is_empty()
         && volume.len() <= 256
@@ -123,7 +136,8 @@ mod tests {
 
     #[test]
     fn allow_lists() {
-        let list = AllowList::parse(&["10.0.4.0/24".into(), "pve.example.com".into(), "192.168.1.10".into(), "".into()]);
+        let list =
+            AllowList::parse(&["10.0.4.0/24".into(), "pve.example.com".into(), "192.168.1.10".into(), "".into()]);
         assert!(list.allows("10.0.4.2", "10.0.4.2".parse().unwrap()));
         assert!(!list.allows("10.0.5.2", "10.0.5.2".parse().unwrap()));
         assert!(list.allows("PVE.example.com", "203.0.113.9".parse().unwrap()));

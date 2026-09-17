@@ -32,11 +32,7 @@ enum Outcome {
 
 /// Run until `emit` reports the subscriber has gone, or the watch fails for a
 /// reason retrying cannot fix (forbidden, not found).
-pub async fn run(
-    kube: Kube,
-    params: WatchParams,
-    emit: impl Fn(Value) -> bool + Send + Sync,
-) -> Result<(), ApiError> {
+pub async fn run(kube: Kube, params: WatchParams, emit: impl Fn(Value) -> bool + Send + Sync) -> Result<(), ApiError> {
     let mut collection = params.target.clone();
     let mut field_selector = params.field_selector.clone();
     if let Some(name) = collection.name.take() {
@@ -100,11 +96,7 @@ async fn list(
             ],
         );
         let page = kube.get(&url).await?;
-        let version = page
-            .pointer("/metadata/resourceVersion")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        let version = page.pointer("/metadata/resourceVersion").and_then(Value::as_str).unwrap_or_default().to_string();
 
         // A list's items omit `kind` and `apiVersion`; put them back so the
         // browser can treat listed and watched objects alike.
@@ -119,11 +111,8 @@ async fn list(
             items.push(slim(item));
         }
 
-        continue_token = page
-            .pointer("/metadata/continue")
-            .and_then(Value::as_str)
-            .filter(|c| !c.is_empty())
-            .map(String::from);
+        continue_token =
+            page.pointer("/metadata/continue").and_then(Value::as_str).filter(|c| !c.is_empty()).map(String::from);
         if continue_token.is_none() {
             return Ok((items, version));
         }

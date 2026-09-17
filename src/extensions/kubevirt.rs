@@ -32,7 +32,9 @@ impl Extension for KubeVirt {
     }
 
     fn register(&self, r: &mut Registry) {
-        for action in ["start", "stop", "shutdown", "restart", "reboot", "reset", "pause", "resume", "freeze", "unfreeze"] {
+        for action in
+            ["start", "stop", "shutdown", "restart", "reboot", "reset", "pause", "resume", "freeze", "unfreeze"]
+        {
             r.method(&format!("vm.{action}"), move |ctx, p| power(ctx, p, action));
         }
         r.method("vm.migrate", migrate);
@@ -174,8 +176,12 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
     ctx.task(&kind, target(&namespace, &name), format!("{description} {namespace}/{name}"), move |task| async move {
         let ns = namespace.as_str();
         let n = name.as_str();
-        let vm_sub = |sub: &str| ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines").ns(ns).named(n).sub(sub);
-        let vmi_sub = |sub: &str| ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(ns).named(n).sub(sub);
+        let vm_sub = |sub: &str| {
+            ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines").ns(ns).named(n).subresource(sub)
+        };
+        let vmi_sub = |sub: &str| {
+            ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(ns).named(n).subresource(sub)
+        };
 
         let before = find(&kube, vmi(ns, n)).await?;
         let before_uid = before.as_ref().map(|v| str_at(v, "/metadata/uid").to_string());
@@ -310,7 +316,8 @@ async fn migrate(ctx: Ctx, p: Value) -> RpcResult {
 
     ctx.task("vm.migrate", target(&p.namespace, &p.name), description, move |task| async move {
         let ns = p.namespace.as_str();
-        let current = find(&kube, vmi(ns, &p.name)).await?.ok_or_else(|| RpcError::bad_request("the VM is not running"))?;
+        let current =
+            find(&kube, vmi(ns, &p.name)).await?.ok_or_else(|| RpcError::bad_request("the VM is not running"))?;
         let source_node = str_at(&current, "/status/nodeName").to_string();
         task.log(format!("source node: {source_node}"));
         let cpu_hint = host_cpu_hint(&kube, &current, &source_node).await;
@@ -351,18 +358,17 @@ async fn migrate(ctx: Ctx, p: Value) -> RpcResult {
             // KubeVirt only says "unschedulable" after five minutes. The
             // scheduler's own reason — no node with this CPU model, not
             // enough memory — is on the target pod straight away.
-            if matches!(phase.as_str(), "" | "Pending" | "Scheduling") {
-                if let Some(reason) = target_pod_scheduling(&kube, ns, str_at(&m, "/metadata/uid")).await {
-                    if reason != last_scheduling {
-                        task.log(format!("target pod cannot be scheduled: {reason}"));
-                        if last_scheduling.is_empty() {
-                            if let Some(hint) = &cpu_hint {
-                                task.log(format!("hint: {hint}"));
-                            }
-                        }
-                        last_scheduling = reason;
-                    }
+            if matches!(phase.as_str(), "" | "Pending" | "Scheduling")
+                && let Some(reason) = target_pod_scheduling(&kube, ns, str_at(&m, "/metadata/uid")).await
+                && reason != last_scheduling
+            {
+                task.log(format!("target pod cannot be scheduled: {reason}"));
+                if last_scheduling.is_empty()
+                    && let Some(hint) = &cpu_hint
+                {
+                    task.log(format!("hint: {hint}"));
                 }
+                last_scheduling = reason;
             }
 
             // Memory moves while the migration is Running; the source
@@ -454,16 +460,25 @@ async fn target_pod_scheduling(kube: &Kube, namespace: &str, migration_uid: &str
 
 /// The events about a migration, oldest first, as "Reason: message".
 async fn migration_events(kube: &Kube, namespace: &str, migration: &str) -> Vec<String> {
-    let Ok(base) = ResourceRef::new("v1", "events").ns(namespace).path() else { return Vec::new() };
+    let Ok(base) = ResourceRef::new("v1", "events").ns(namespace).path() else {
+        return Vec::new();
+    };
     let path = with_query(&base, &[("fieldSelector", Some(format!("involvedObject.name={migration}")))]);
-    let Ok(list) = kube.get(&path).await else { return Vec::new() };
+    let Ok(list) = kube.get(&path).await else {
+        return Vec::new();
+    };
     let mut events: Vec<(String, String)> = list
         .get("items")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .map(|e| {
-            let at = e.get("lastTimestamp").and_then(Value::as_str).or_else(|| e.get("eventTime").and_then(Value::as_str)).unwrap_or_default().to_string();
+            let at = e
+                .get("lastTimestamp")
+                .and_then(Value::as_str)
+                .or_else(|| e.get("eventTime").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_string();
             (at, format!("{}: {}", str_at(e, "/reason"), str_at(e, "/message")))
         })
         .collect();
@@ -478,7 +493,8 @@ async fn migrate_cancel(ctx: Ctx, p: Value) -> RpcResult {
         migration: String,
     }
     let p: P = params(p)?;
-    let path = ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(&p.namespace).named(&p.migration);
+    let path =
+        ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(&p.namespace).named(&p.migration);
     ctx.kube()?.delete(&path.path()?, None).await?;
     Ok(json!({ "ok": true }))
 }
@@ -488,7 +504,12 @@ async fn migrate_cancel(ctx: Ctx, p: Value) -> RpcResult {
 async fn guest(ctx: Ctx, p: Value) -> RpcResult {
     let VmParams { namespace, name } = params(p)?;
     let kube = ctx.kube()?;
-    let sub = |s: &str| ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(&namespace).named(&name).sub(s);
+    let sub = |s: &str| {
+        ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances")
+            .ns(&namespace)
+            .named(&name)
+            .subresource(s)
+    };
 
     let (os, users, filesystems) = tokio::join!(
         async { kube.get(&sub("guestosinfo").path()?).await },
@@ -508,7 +529,7 @@ async fn screenshot(ctx: Ctx, p: Value) -> RpcResult {
         &ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances")
             .ns(&namespace)
             .named(&name)
-            .sub("vnc/screenshot")
+            .subresource("vnc/screenshot")
             .path()?,
         &[("moveCursor", Some("false".into()))],
     );
@@ -522,13 +543,19 @@ async fn screenshot(ctx: Ctx, p: Value) -> RpcResult {
 
 async fn expand_spec(ctx: Ctx, p: Value) -> RpcResult {
     let VmParams { namespace, name } = params(p)?;
-    let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines").ns(&namespace).named(&name).sub("expand-spec");
+    let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines")
+        .ns(&namespace)
+        .named(&name)
+        .subresource("expand-spec");
     Ok(ctx.kube()?.get(&path.path()?).await?)
 }
 
 async fn object_graph(ctx: Ctx, p: Value) -> RpcResult {
     let VmParams { namespace, name } = params(p)?;
-    let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines").ns(&namespace).named(&name).sub("objectgraph");
+    let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachines")
+        .ns(&namespace)
+        .named(&name)
+        .subresource("objectgraph");
     Ok(ctx.kube()?.get(&path.path()?).await?)
 }
 
@@ -549,55 +576,65 @@ async fn delete(ctx: Ctx, p: Value) -> RpcResult {
     segment("name", &p.name)?;
     let kube = ctx.kube()?;
 
-    ctx.task("vm.delete", target(&p.namespace, &p.name), format!("Destroy {}/{}", p.namespace, p.name), move |task| async move {
-        let ns = p.namespace.as_str();
-        let object = find(&kube, vm(ns, &p.name)).await?.ok_or_else(|| RpcError::not_found("no such VM"))?;
+    ctx.task(
+        "vm.delete",
+        target(&p.namespace, &p.name),
+        format!("Destroy {}/{}", p.namespace, p.name),
+        move |task| async move {
+            let ns = p.namespace.as_str();
+            let object = find(&kube, vm(ns, &p.name)).await?.ok_or_else(|| RpcError::not_found("no such VM"))?;
 
-        let mut claims: Vec<(&'static str, String)> = Vec::new();
-        if p.delete_disks {
-            for volume in object.pointer("/spec/template/spec/volumes").and_then(Value::as_array).into_iter().flatten() {
-                if let Some(dv) = volume.pointer("/dataVolume/name").and_then(Value::as_str) {
-                    claims.push(("datavolume", dv.to_string()));
-                } else if let Some(pvc) = volume.pointer("/persistentVolumeClaim/claimName").and_then(Value::as_str) {
-                    claims.push(("pvc", pvc.to_string()));
+            let mut claims: Vec<(&'static str, String)> = Vec::new();
+            if p.delete_disks {
+                for volume in
+                    object.pointer("/spec/template/spec/volumes").and_then(Value::as_array).into_iter().flatten()
+                {
+                    if let Some(dv) = volume.pointer("/dataVolume/name").and_then(Value::as_str) {
+                        claims.push(("datavolume", dv.to_string()));
+                    } else if let Some(pvc) = volume.pointer("/persistentVolumeClaim/claimName").and_then(Value::as_str)
+                    {
+                        claims.push(("pvc", pvc.to_string()));
+                    }
                 }
             }
-        }
 
-        let options = json!({ "apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground" });
-        kube.delete(&vm(ns, &p.name).path()?, Some(&options)).await?;
-        task.log(format!("deleting VM {ns}/{}", p.name));
+            let options = json!({ "apiVersion": "v1", "kind": "DeleteOptions", "propagationPolicy": "Foreground" });
+            kube.delete(&vm(ns, &p.name).path()?, Some(&options)).await?;
+            task.log(format!("deleting VM {ns}/{}", p.name));
 
-        wait_until(
-            &task,
-            Duration::from_secs(600),
-            || find(&kube, vm(ns, &p.name)),
-            |v| v.is_none().then(|| Ok(None)),
-            |v| if v.is_some() { "waiting for the VM to be removed".into() } else { "VM removed".into() },
-        )
-        .await?;
+            wait_until(
+                &task,
+                Duration::from_secs(600),
+                || find(&kube, vm(ns, &p.name)),
+                |v| v.is_none().then_some(Ok(None)),
+                |v| {
+                    if v.is_some() { "waiting for the VM to be removed".into() } else { "VM removed".into() }
+                },
+            )
+            .await?;
 
-        for (kind, claim) in claims {
-            let target = match kind {
-                "datavolume" => ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(ns).named(&claim),
-                _ => ResourceRef::new("v1", "persistentvolumeclaims").ns(ns).named(&claim),
-            };
-            match kube.delete(&target.path()?, None).await {
-                Ok(_) => task.log(format!("deleted {kind} {claim}")),
-                Err(e) if e.is_not_found() => task.log(format!("{kind} {claim} already gone")),
-                Err(e) => task.log(format!("could not delete {kind} {claim}: {}", e.message)),
-            }
-            // A DataVolume's PVC shares its name and is owned by it; remove a
-            // leftover claim too so no disk is orphaned.
-            if kind == "datavolume" {
-                let pvc = ResourceRef::new("v1", "persistentvolumeclaims").ns(ns).named(&claim);
-                if let Ok(()) = kube.delete(&pvc.path()?, None).await.map(|_| ()) {
-                    task.log(format!("deleted pvc {claim}"));
+            for (kind, claim) in claims {
+                let target = match kind {
+                    "datavolume" => ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(ns).named(&claim),
+                    _ => ResourceRef::new("v1", "persistentvolumeclaims").ns(ns).named(&claim),
+                };
+                match kube.delete(&target.path()?, None).await {
+                    Ok(_) => task.log(format!("deleted {kind} {claim}")),
+                    Err(e) if e.is_not_found() => task.log(format!("{kind} {claim} already gone")),
+                    Err(e) => task.log(format!("could not delete {kind} {claim}: {}", e.message)),
+                }
+                // A DataVolume's PVC shares its name and is owned by it; remove a
+                // leftover claim too so no disk is orphaned.
+                if kind == "datavolume" {
+                    let pvc = ResourceRef::new("v1", "persistentvolumeclaims").ns(ns).named(&claim);
+                    if let Ok(()) = kube.delete(&pvc.path()?, None).await.map(|_| ()) {
+                        task.log(format!("deleted pvc {claim}"));
+                    }
                 }
             }
-        }
-        Ok(Some(format!("VM {ns}/{} destroyed", p.name)))
-    })
+            Ok(Some(format!("VM {ns}/{} destroyed", p.name)))
+        },
+    )
 }
 
 /// Create a VM, with any standalone DataVolumes its disks need first, and
@@ -658,7 +695,16 @@ async fn create(ctx: Ctx, p: Value) -> RpcResult {
             disks.push(str_at(template, "/metadata/name").to_string());
         }
         for disk in disks.into_iter().filter(|d| !d.is_empty()) {
-            let result = datavolumes::follow(&task, &kube, ns, &disk, &format!("disk {disk}"), &[], Duration::from_secs(4 * 3600)).await;
+            let result = datavolumes::follow(
+                &task,
+                &kube,
+                ns,
+                &disk,
+                &format!("disk {disk}"),
+                &[],
+                Duration::from_secs(4 * 3600),
+            )
+            .await;
             if let Err(e) = result {
                 task.log(format!("disk {disk}: {}", e.message));
             }
@@ -675,7 +721,9 @@ fn collection_for(object: &Value, namespace: &str) -> Result<(String, String), R
         "ConfigMap" => ResourceRef::new("v1", "configmaps"),
         "PersistentVolumeClaim" => ResourceRef::new("v1", "persistentvolumeclaims"),
         "Service" => ResourceRef::new("v1", "services"),
-        other => return Err(RpcError::bad_request(format!("extra objects of kind {other} are not supported"))),
+        other => {
+            return Err(RpcError::bad_request(format!("extra objects of kind {other} are not supported")));
+        }
     };
     Ok((target.ns(namespace).path()?, kind.to_string()))
 }
@@ -710,63 +758,81 @@ async fn snapshot(ctx: Ctx, p: Value) -> RpcResult {
         "spec": { "source": { "apiGroup": "kubevirt.io", "kind": "VirtualMachine", "name": p.name } }
     });
 
-    ctx.task("vm.snapshot", target(&p.namespace, &p.name), format!("Snapshot {}/{} as {}", p.namespace, p.name, p.snapshot), move |task| async move {
-        let collection = ResourceRef::new(&api_version, "virtualmachinesnapshots").ns(&p.namespace);
-        kube.post(&collection.path()?, &body).await?;
-        task.log(format!("created VirtualMachineSnapshot {}", p.snapshot));
-        let path = collection.named(&p.snapshot);
-        wait_until(
-            &task,
-            Duration::from_secs(3600),
-            || find(&kube, path.clone()),
-            |s| match s {
-                None => Some(Err(RpcError::internal("the snapshot disappeared"))),
-                Some(s) if s.pointer("/status/readyToUse").and_then(Value::as_bool) == Some(true) => Some(Ok(None)),
-                Some(s) if str_at(s, "/status/phase") == "Failed" => Some(Err(RpcError::internal(format!(
-                    "snapshot failed: {}",
-                    s.pointer("/status/error/message").and_then(Value::as_str).unwrap_or("unknown error")
-                )))),
-                _ => None,
-            },
-            |s| s.as_ref().map(|s| format!("snapshot phase: {}", str_at(s, "/status/phase"))).unwrap_or_default(),
-        )
-        .await?;
+    ctx.task(
+        "vm.snapshot",
+        target(&p.namespace, &p.name),
+        format!("Snapshot {}/{} as {}", p.namespace, p.name, p.snapshot),
+        move |task| async move {
+            let collection = ResourceRef::new(&api_version, "virtualmachinesnapshots").ns(&p.namespace);
+            kube.post(&collection.path()?, &body).await?;
+            task.log(format!("created VirtualMachineSnapshot {}", p.snapshot));
+            let path = collection.named(&p.snapshot);
+            wait_until(
+                &task,
+                Duration::from_secs(3600),
+                || find(&kube, path.clone()),
+                |s| match s {
+                    None => Some(Err(RpcError::internal("the snapshot disappeared"))),
+                    Some(s) if s.pointer("/status/readyToUse").and_then(Value::as_bool) == Some(true) => Some(Ok(None)),
+                    Some(s) if str_at(s, "/status/phase") == "Failed" => Some(Err(RpcError::internal(format!(
+                        "snapshot failed: {}",
+                        s.pointer("/status/error/message").and_then(Value::as_str).unwrap_or("unknown error")
+                    )))),
+                    _ => None,
+                },
+                |s| s.as_ref().map(|s| format!("snapshot phase: {}", str_at(s, "/status/phase"))).unwrap_or_default(),
+            )
+            .await?;
 
-        // KubeVirt leaves out disks it cannot capture — a containerDisk, or a
-        // claim whose storage has no VolumeSnapshotClass — and still calls the
-        // snapshot ready. Say so, or a rollback later restores less than the
-        // person expects.
-        let snapshot = find(&kube, path.clone()).await?.unwrap_or(Value::Null);
-        let names = |pointer: &str| -> Vec<String> {
-            snapshot.pointer(pointer).and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default()
-        };
-        let included = names("/status/snapshotVolumes/includedVolumes");
-        let excluded = names("/status/snapshotVolumes/excludedVolumes");
-        let indications = names("/status/indications");
-        if !indications.is_empty() {
-            task.log(format!("consistency: {}", indications.join(", ")));
-        }
-        task.log(format!("disks included: {}", if included.is_empty() { "none".to_string() } else { included.join(", ") }));
-        if !excluded.is_empty() {
-            let vm_object = find(&kube, vm(&p.namespace, &p.name)).await?.unwrap_or(Value::Null);
-            for volume in &excluded {
-                let reason = vm_object
-                    .pointer("/status/volumeSnapshotStatuses")
+            // KubeVirt leaves out disks it cannot capture — a containerDisk, or a
+            // claim whose storage has no VolumeSnapshotClass — and still calls the
+            // snapshot ready. Say so, or a rollback later restores less than the
+            // person expects.
+            let snapshot = find(&kube, path.clone()).await?.unwrap_or(Value::Null);
+            let names = |pointer: &str| -> Vec<String> {
+                snapshot
+                    .pointer(pointer)
                     .and_then(Value::as_array)
-                    .and_then(|s| s.iter().find(|s| str_at(s, "/name") == volume))
-                    .map(|s| str_at(s, "/reason").to_string())
-                    .unwrap_or_default();
-                task.log(format!("disk {volume} not included: {}", if reason.is_empty() { "its volume cannot be snapshotted".into() } else { reason }));
+                    .map(|v| v.iter().filter_map(Value::as_str).map(String::from).collect())
+                    .unwrap_or_default()
+            };
+            let included = names("/status/snapshotVolumes/includedVolumes");
+            let excluded = names("/status/snapshotVolumes/excludedVolumes");
+            let indications = names("/status/indications");
+            if !indications.is_empty() {
+                task.log(format!("consistency: {}", indications.join(", ")));
             }
-        }
-        Ok(Some(if included.is_empty() && !excluded.is_empty() {
-            format!("snapshot is ready, without disk data: {} excluded (only the VM definition was captured)", excluded.join(", "))
-        } else if !excluded.is_empty() {
-            format!("snapshot is ready; not included: {}", excluded.join(", "))
-        } else {
-            "snapshot is ready".into()
-        }))
-    })
+            task.log(format!(
+                "disks included: {}",
+                if included.is_empty() { "none".to_string() } else { included.join(", ") }
+            ));
+            if !excluded.is_empty() {
+                let vm_object = find(&kube, vm(&p.namespace, &p.name)).await?.unwrap_or(Value::Null);
+                for volume in &excluded {
+                    let reason = vm_object
+                        .pointer("/status/volumeSnapshotStatuses")
+                        .and_then(Value::as_array)
+                        .and_then(|s| s.iter().find(|s| str_at(s, "/name") == volume))
+                        .map(|s| str_at(s, "/reason").to_string())
+                        .unwrap_or_default();
+                    task.log(format!(
+                        "disk {volume} not included: {}",
+                        if reason.is_empty() { "its volume cannot be snapshotted".into() } else { reason }
+                    ));
+                }
+            }
+            Ok(Some(if included.is_empty() && !excluded.is_empty() {
+                format!(
+                    "snapshot is ready, without disk data: {} excluded (only the VM definition was captured)",
+                    excluded.join(", ")
+                )
+            } else if !excluded.is_empty() {
+                format!("snapshot is ready; not included: {}", excluded.join(", "))
+            } else {
+                "snapshot is ready".into()
+            }))
+        },
+    )
 }
 
 async fn restore(ctx: Ctx, p: Value) -> RpcResult {
@@ -793,42 +859,47 @@ async fn restore(ctx: Ctx, p: Value) -> RpcResult {
         }
     });
 
-    ctx.task("vm.restore", target(&p.namespace, &p.name), format!("Restore {}/{} from {}", p.namespace, p.name, p.snapshot), move |task| async move {
-        if let Some(running) = find(&kube, vmi(&p.namespace, &p.name)).await? {
-            if str_at(&running, "/status/phase") == "Running" {
+    ctx.task(
+        "vm.restore",
+        target(&p.namespace, &p.name),
+        format!("Restore {}/{} from {}", p.namespace, p.name, p.snapshot),
+        move |task| async move {
+            if let Some(running) = find(&kube, vmi(&p.namespace, &p.name)).await?
+                && str_at(&running, "/status/phase") == "Running"
+            {
                 return Err(RpcError::new(409, "Conflict", "stop the VM before restoring a snapshot"));
             }
-        }
-        let collection = ResourceRef::new(&api_version, "virtualmachinerestores").ns(&p.namespace);
-        kube.post(&collection.path()?, &body).await?;
-        task.log(format!("created VirtualMachineRestore {restore_name}"));
-        let path = collection.named(&restore_name);
-        wait_until(
-            &task,
-            Duration::from_secs(3600),
-            || find(&kube, path.clone()),
-            |r| match r {
-                None => Some(Err(RpcError::internal("the restore disappeared"))),
-                Some(r) if r.pointer("/status/complete").and_then(Value::as_bool) == Some(true) => {
-                    Some(Ok(Some("restore complete".into())))
-                }
-                _ => None,
-            },
-            |r| {
-                r.as_ref()
-                    .and_then(|r| r.pointer("/status/conditions").and_then(Value::as_array))
-                    .map(|c| {
-                        c.iter()
-                            .filter(|c| c["status"] == "True")
-                            .map(|c| format!("{}: {}", str_at(c, "/type"), str_at(c, "/reason")))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    })
-                    .unwrap_or_default()
-            },
-        )
-        .await
-    })
+            let collection = ResourceRef::new(&api_version, "virtualmachinerestores").ns(&p.namespace);
+            kube.post(&collection.path()?, &body).await?;
+            task.log(format!("created VirtualMachineRestore {restore_name}"));
+            let path = collection.named(&restore_name);
+            wait_until(
+                &task,
+                Duration::from_secs(3600),
+                || find(&kube, path.clone()),
+                |r| match r {
+                    None => Some(Err(RpcError::internal("the restore disappeared"))),
+                    Some(r) if r.pointer("/status/complete").and_then(Value::as_bool) == Some(true) => {
+                        Some(Ok(Some("restore complete".into())))
+                    }
+                    _ => None,
+                },
+                |r| {
+                    r.as_ref()
+                        .and_then(|r| r.pointer("/status/conditions").and_then(Value::as_array))
+                        .map(|c| {
+                            c.iter()
+                                .filter(|c| c["status"] == "True")
+                                .map(|c| format!("{}: {}", str_at(c, "/type"), str_at(c, "/reason")))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_default()
+                },
+            )
+            .await
+        },
+    )
 }
 
 async fn clone(ctx: Ctx, p: Value) -> RpcResult {
@@ -872,25 +943,30 @@ async fn clone(ctx: Ctx, p: Value) -> RpcResult {
         "spec": spec,
     });
 
-    ctx.task("vm.clone", target(&p.namespace, &p.name), format!("Clone {}/{} to {}", p.namespace, p.name, p.target), move |task| async move {
-        let collection = ResourceRef::new(&api_version, "virtualmachineclones").ns(&p.namespace);
-        kube.post(&collection.path()?, &body).await?;
-        task.log(format!("created VirtualMachineClone {clone_name}"));
-        let path = collection.named(&clone_name);
-        wait_until(
-            &task,
-            Duration::from_secs(4 * 3600),
-            || find(&kube, path.clone()),
-            |c| match c.as_ref().map(|c| str_at(c, "/status/phase")) {
-                None => Some(Err(RpcError::internal("the clone disappeared"))),
-                Some("Succeeded") => Some(Ok(Some(format!("clone {} created", p.target)))),
-                Some("Failed") => Some(Err(RpcError::internal("clone failed"))),
-                _ => None,
-            },
-            |c| c.as_ref().map(|c| format!("clone phase: {}", str_at(c, "/status/phase"))).unwrap_or_default(),
-        )
-        .await
-    })
+    ctx.task(
+        "vm.clone",
+        target(&p.namespace, &p.name),
+        format!("Clone {}/{} to {}", p.namespace, p.name, p.target),
+        move |task| async move {
+            let collection = ResourceRef::new(&api_version, "virtualmachineclones").ns(&p.namespace);
+            kube.post(&collection.path()?, &body).await?;
+            task.log(format!("created VirtualMachineClone {clone_name}"));
+            let path = collection.named(&clone_name);
+            wait_until(
+                &task,
+                Duration::from_secs(4 * 3600),
+                || find(&kube, path.clone()),
+                |c| match c.as_ref().map(|c| str_at(c, "/status/phase")) {
+                    None => Some(Err(RpcError::internal("the clone disappeared"))),
+                    Some("Succeeded") => Some(Ok(Some(format!("clone {} created", p.target)))),
+                    Some("Failed") => Some(Err(RpcError::internal("clone failed"))),
+                    _ => None,
+                },
+                |c| c.as_ref().map(|c| format!("clone phase: {}", str_at(c, "/status/phase"))).unwrap_or_default(),
+            )
+            .await
+        },
+    )
 }
 
 // --- hotplug ------------------------------------------------------------------
@@ -926,7 +1002,7 @@ async fn volume_add(ctx: Ctx, p: Value) -> RpcResult {
     let body = json!({ "name": p.volume, "disk": disk, "volumeSource": source });
 
     ctx.task("vm.hotplug", target(&p.namespace, &p.name), format!("Hotplug {} into {}/{}", p.claim, p.namespace, p.name), move |task| async move {
-        let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(&p.namespace).named(&p.name).sub("addvolume");
+        let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(&p.namespace).named(&p.name).subresource("addvolume");
         kube.put(&path.path()?, Some(&body)).await?;
         task.log(format!("attached {} as {}", p.claim, p.volume));
         // Make it persistent in the VM spec, as `virtctl addvolume --persist` does.
@@ -962,7 +1038,7 @@ async fn volume_remove(ctx: Ctx, p: Value) -> RpcResult {
     let p: P = params(p)?;
     let kube = ctx.kube()?;
     ctx.task("vm.unplug", target(&p.namespace, &p.name), format!("Unplug {} from {}/{}", p.volume, p.namespace, p.name), move |task| async move {
-        let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(&p.namespace).named(&p.name).sub("removevolume");
+        let path = ResourceRef::new("subresources.kubevirt.io/v1", "virtualmachineinstances").ns(&p.namespace).named(&p.name).subresource("removevolume");
         match kube.put(&path.path()?, Some(&json!({ "name": p.volume }))).await {
             Ok(_) => task.log(format!("detached {}", p.volume)),
             Err(e) => task.log(format!("live detach skipped: {}", e.message)),
@@ -997,7 +1073,8 @@ async fn console_ticket(ctx: Ctx, p: Value) -> RpcResult {
     if str_at(&object, "/status/phase") != "Running" {
         return Err(RpcError::new(409, "Conflict", "the VM is not running"));
     }
-    let ticket = ctx.state.consoles.issue(session.kube.clone(), &p.namespace, &p.name, p.kind, &session.user.username)?;
+    let ticket =
+        ctx.state.consoles.issue(session.kube.clone(), &p.namespace, &p.name, p.kind, &session.user.username)?;
     Ok(json!({ "ticket": ticket, "path": format!("/ws/console/{ticket}") }))
 }
 
@@ -1021,7 +1098,9 @@ async fn datavolume_create(ctx: Ctx, p: Value) -> RpcResult {
         let created = kube.post(&collection.path()?, &p.body).await?;
         task.log(format!("created DataVolume {}", str_at(&created, "/metadata/name")));
         match datavolumes::follow(&task, &kube, &namespace, &name, "disk", &[], Duration::from_secs(4 * 3600)).await? {
-            Settled::Ready(phase) if phase == "WaitForFirstConsumer" || phase == "PendingPopulation" => Ok(Some("disk will be filled when a VM uses it".into())),
+            Settled::Ready(phase) if phase == "WaitForFirstConsumer" || phase == "PendingPopulation" => {
+                Ok(Some("disk will be filled when a VM uses it".into()))
+            }
             _ => Ok(Some("disk is ready".into())),
         }
     })

@@ -129,11 +129,7 @@ pub struct TaskManager {
 
 impl Default for TaskManager {
     fn default() -> Self {
-        Self {
-            tasks: Mutex::new(VecDeque::new()),
-            events: broadcast::channel(1024).0,
-            seq: Default::default(),
-        }
+        Self { tasks: Mutex::new(VecDeque::new()), events: broadcast::channel(1024).0, seq: Default::default() }
     }
 }
 
@@ -222,7 +218,14 @@ impl TaskManager {
     ///
     /// The work's `Ok(message)` ends the task `OK`; an `Err` ends it in error
     /// with the message logged — the task log is where a failure is explained.
-    pub fn spawn<F, Fut>(&self, user: &str, kind: &str, target: TaskTarget, description: impl Into<String>, work: F) -> String
+    pub fn spawn<F, Fut>(
+        &self,
+        user: &str,
+        kind: &str,
+        target: TaskTarget,
+        description: impl Into<String>,
+        work: F,
+    ) -> String
     where
         F: FnOnce(TaskHandle) -> Fut + Send + 'static,
         Fut: Future<Output = Result<Option<String>, RpcError>> + Send + 'static,

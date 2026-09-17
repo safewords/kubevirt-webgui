@@ -213,7 +213,9 @@ fn is_disk_key(key: &str) -> Option<(&'static str, u32)> {
     None
 }
 
-const NIC_MODELS: [&str; 11] = ["virtio", "e1000", "e1000e", "rtl8139", "vmxnet3", "i82551", "i82557b", "i82559er", "ne2k_isa", "ne2k_pci", "pcnet"];
+const NIC_MODELS: [&str; 11] = [
+    "virtio", "e1000", "e1000e", "rtl8139", "vmxnet3", "i82551", "i82557b", "i82559er", "ne2k_isa", "ne2k_pci", "pcnet",
+];
 
 /// Proxmox's Windows OS types: `win11`, `win10`, `w2k8`, `wxp`, …
 pub fn is_windows(ostype: &str) -> bool {
@@ -237,7 +239,8 @@ pub fn parse(config: &Map<String, Value>, sizes: &BTreeMap<String, u64>) -> VmCo
     let machine_raw = text(config, "machine").unwrap_or_default();
     let machine_type = Props::parse(&machine_raw).head.unwrap_or_default();
     let machine = if machine_type.contains("q35") { "q35" } else { "i440fx" }.to_string();
-    let machine_version = machine_type.strip_prefix("pc-q35-").or_else(|| machine_type.strip_prefix("pc-i440fx-")).map(String::from);
+    let machine_version =
+        machine_type.strip_prefix("pc-q35-").or_else(|| machine_type.strip_prefix("pc-i440fx-")).map(String::from);
 
     let cpu = Props::parse(&text(config, "cpu").unwrap_or_else(|| "kvm64".into()));
     let cpu_type = cpu.get("cputype").map(String::from).or(cpu.head.clone()).unwrap_or_else(|| "kvm64".into());
@@ -341,10 +344,19 @@ pub fn parse(config: &Map<String, Value>, sizes: &BTreeMap<String, u64>) -> VmCo
                 not_imported.push(format!("{key}: host serial port {value}"));
             }
         } else if key.starts_with("hostpci") {
-            not_imported.push(format!("{key}: PCI passthrough ({value}) — attach devices through KubeVirt host devices"));
+            not_imported
+                .push(format!("{key}: PCI passthrough ({value}) — attach devices through KubeVirt host devices"));
         } else if key.starts_with("unused") {
             not_imported.push(format!("{key}: detached disk {value}"));
-        } else if key.starts_with("parallel") || key.starts_with("virtiofs") || key == "audio0" || key == "rng0" || key == "watchdog" || key == "args" || key == "hookscript" || key == "numa0" {
+        } else if key.starts_with("parallel")
+            || key.starts_with("virtiofs")
+            || key == "audio0"
+            || key == "rng0"
+            || key == "watchdog"
+            || key == "args"
+            || key == "hookscript"
+            || key == "numa0"
+        {
             not_imported.push(format!("{key}: {value}"));
         }
     }
@@ -357,7 +369,9 @@ pub fn parse(config: &Map<String, Value>, sizes: &BTreeMap<String, u64>) -> VmCo
     };
 
     if efidisk.is_some() {
-        not_imported.push("efidisk0: the EFI variable store (boot entries) — the guest boots from its default loader path".into());
+        not_imported.push(
+            "efidisk0: the EFI variable store (boot entries) — the guest boots from its default loader path".into(),
+        );
     }
     if text(config, "tpmstate0").is_some() {
         not_imported.push("tpmstate0: the TPM's contents (e.g. BitLocker keys) — the VM gets a fresh TPM".into());
@@ -365,12 +379,18 @@ pub fn parse(config: &Map<String, Value>, sizes: &BTreeMap<String, u64>) -> VmCo
     if cloud_init {
         not_imported.push("cloud-init drive — its settings are not copied".into());
     }
-    if let Some(balloon) = number(config, "balloon").filter(|b| *b > 0) {
-        if Some(balloon) != number(config, "memory") {
-            not_imported.push(format!("balloon: minimum memory {balloon} MiB"));
-        }
+    if let Some(balloon) = number(config, "balloon").filter(|b| *b > 0)
+        && Some(balloon) != number(config, "memory")
+    {
+        not_imported.push(format!("balloon: minimum memory {balloon} MiB"));
     }
-    for (key, what) in [("cpulimit", "CPU limit"), ("cpuunits", "CPU weight"), ("hugepages", "huge pages"), ("hotplug", "hotplug settings"), ("startup", "start-up order")] {
+    for (key, what) in [
+        ("cpulimit", "CPU limit"),
+        ("cpuunits", "CPU weight"),
+        ("hugepages", "huge pages"),
+        ("hotplug", "hotplug settings"),
+        ("startup", "start-up order"),
+    ] {
         if let Some(value) = text(config, key) {
             not_imported.push(format!("{key}: {what} ({value})"));
         }
@@ -381,7 +401,9 @@ pub fn parse(config: &Map<String, Value>, sizes: &BTreeMap<String, u64>) -> VmCo
     VmConfig {
         name: text(config, "name").unwrap_or_default(),
         description: text(config, "description"),
-        tags: text(config, "tags").map(|t| t.split([';', ',', ' ']).filter(|s| !s.is_empty()).map(String::from).collect()).unwrap_or_default(),
+        tags: text(config, "tags")
+            .map(|t| t.split([';', ',', ' ']).filter(|s| !s.is_empty()).map(String::from).collect())
+            .unwrap_or_default(),
         ostype: text(config, "ostype"),
         bios: text(config, "bios").unwrap_or_else(|| "seabios".into()),
         machine,

@@ -83,7 +83,7 @@ pub async fn probe(addr: SocketAddr, host: &str) -> Result<HostKey, String> {
     let seen = Arc::new(Mutex::new(None));
     let handler = Pinned { expected: None, seen: seen.clone() };
     let attempt = tokio::time::timeout(CONNECT_TIMEOUT, client::connect(config(), addr, handler)).await;
-    if let Err(_) = attempt {
+    if attempt.is_err() {
         return Err(format!("{host} ({addr}) did not answer within {}s", CONNECT_TIMEOUT.as_secs()));
     }
     let key = seen.lock().unwrap().clone();
@@ -123,7 +123,9 @@ impl Ssh {
         let seen = Arc::new(Mutex::new(None));
         let handler = Pinned { expected: Some(fingerprint.to_string()), seen: seen.clone() };
         let host = &target.host;
-        let mut handle = match tokio::time::timeout(CONNECT_TIMEOUT, client::connect(config(), target.addr, handler)).await {
+        let mut handle = match tokio::time::timeout(CONNECT_TIMEOUT, client::connect(config(), target.addr, handler))
+            .await
+        {
             Err(_) => return Err(format!("{host} did not answer within {}s", CONNECT_TIMEOUT.as_secs())),
             Ok(Ok(handle)) => handle,
             Ok(Err(e)) => {
@@ -141,8 +143,9 @@ impl Ssh {
         let result = match auth {
             Auth::Password(password) => handle.authenticate_password(user.clone(), password.expose_secret()).await,
             Auth::Key { pem, passphrase } => {
-                let key = russh::keys::decode_secret_key(pem.expose_secret(), passphrase.as_ref().map(|p| p.expose_secret()))
-                    .map_err(|e| format!("the private key could not be read: {e}"))?;
+                let key =
+                    russh::keys::decode_secret_key(pem.expose_secret(), passphrase.as_ref().map(|p| p.expose_secret()))
+                        .map_err(|e| format!("the private key could not be read: {e}"))?;
                 let hash = handle.best_supported_rsa_hash().await.map_err(|e| e.to_string())?.flatten();
                 handle.authenticate_publickey(user.clone(), PrivateKeyWithHashAlg::new(Arc::new(key), hash)).await
             }

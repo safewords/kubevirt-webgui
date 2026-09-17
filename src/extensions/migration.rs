@@ -60,14 +60,22 @@ pub fn parse_transfer(metrics: &str, namespace: &str, vmi: &str) -> Transfer {
     let mut transfer = Transfer::default();
     let mut newest: std::collections::HashMap<&str, i64> = Default::default();
     for line in metrics.lines() {
-        let Some(rest) = line.strip_prefix("kubevirt_vmi_migration_") else { continue };
-        let Some((metric, rest)) = rest.split_once('{') else { continue };
-        let Some((labels, rest)) = rest.split_once('}') else { continue };
+        let Some(rest) = line.strip_prefix("kubevirt_vmi_migration_") else {
+            continue;
+        };
+        let Some((metric, rest)) = rest.split_once('{') else {
+            continue;
+        };
+        let Some((labels, rest)) = rest.split_once('}') else {
+            continue;
+        };
         if label(labels, "namespace") != Some(namespace) || label(labels, "name") != Some(vmi) {
             continue;
         }
         let mut fields = rest.split_whitespace();
-        let Some(value) = fields.next().and_then(|v| v.parse::<f64>().ok()) else { continue };
+        let Some(value) = fields.next().and_then(|v| v.parse::<f64>().ok()) else {
+            continue;
+        };
         let at = fields.next().and_then(|t| t.parse::<i64>().ok()).unwrap_or(0);
         if newest.get(metric).is_some_and(|seen| *seen > at) {
             continue;
@@ -118,7 +126,10 @@ impl HandlerMetrics {
         let pods = kube
             .get(&with_query(
                 &ResourceRef::new("v1", "pods").ns(&namespace).path()?,
-                &[("labelSelector", Some("kubevirt.io=virt-handler".into())), ("fieldSelector", Some(format!("spec.nodeName={node}")))],
+                &[
+                    ("labelSelector", Some("kubevirt.io=virt-handler".into())),
+                    ("fieldSelector", Some(format!("spec.nodeName={node}"))),
+                ],
             ))
             .await?;
         let pod = pods
@@ -162,6 +173,12 @@ pub struct TaskReporter {
     reported: bool,
 }
 
+impl Default for TaskReporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskReporter {
     pub fn new() -> Self {
         Self { metrics: None, unavailable: false, last_logged_quarter: 0, reported: false }
@@ -200,7 +217,9 @@ impl TaskReporter {
             Ok(transfer) => transfer,
             Err(e) => return self.give_up(task, &e),
         };
-        let (Some(total), Some(done)) = (transfer.total, transfer.done()) else { return };
+        let (Some(total), Some(done)) = (transfer.total, transfer.done()) else {
+            return;
+        };
         if total == 0 {
             return;
         }
@@ -229,7 +248,11 @@ impl TaskReporter {
 
     fn give_up(&mut self, task: &TaskHandle, e: &ApiError) {
         self.unavailable = true;
-        let why = if e.status == 403 { "reading virt-handler's metrics needs `get pods/proxy` in KubeVirt's namespace".to_string() } else { e.message.clone() };
+        let why = if e.status == 403 {
+            "reading virt-handler's metrics needs `get pods/proxy` in KubeVirt's namespace".to_string()
+        } else {
+            e.message.clone()
+        };
         task.log(format!("live transfer figures unavailable: {why}"));
     }
 }
@@ -247,7 +270,8 @@ pub async fn progress_topic(ctx: Ctx, p: Value, sink: Sink) -> RpcResult<()> {
     segment("namespace", &p.namespace)?;
     segment("name", &p.name)?;
     let kube = ctx.kube()?;
-    let vmi_path = ResourceRef::new("kubevirt.io/v1", "virtualmachineinstances").ns(&p.namespace).named(&p.name).path()?;
+    let vmi_path =
+        ResourceRef::new("kubevirt.io/v1", "virtualmachineinstances").ns(&p.namespace).named(&p.name).path()?;
 
     let mut metrics: Option<(String, HandlerMetrics)> = None;
     let mut last: Option<Value> = None;
@@ -258,7 +282,9 @@ pub async fn progress_topic(ctx: Ctx, p: Value, sink: Sink) -> RpcResult<()> {
             Err(e) => return Err(e.into()),
         };
         let state = vmi.as_ref().and_then(|v| v.pointer("/status/migrationState")).cloned().unwrap_or(Value::Null);
-        let migrating = !state.is_null() && state.get("completed").and_then(Value::as_bool) != Some(true) && state.get("failed").and_then(Value::as_bool) != Some(true);
+        let migrating = !state.is_null()
+            && state.get("completed").and_then(Value::as_bool) != Some(true)
+            && state.get("failed").and_then(Value::as_bool) != Some(true);
 
         let event = if migrating {
             let source = state.get("sourceNode").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -284,7 +310,12 @@ pub async fn progress_topic(ctx: Ctx, p: Value, sink: Sink) -> RpcResult<()> {
                         Ok(transfer) if !transfer.is_empty() => event["transfer"] = json!(transfer),
                         Ok(_) => {}
                         Err(e) => {
-                            event["unavailable"] = json!(if e.status == 403 { "reading virt-handler's metrics needs get pods/proxy in KubeVirt's namespace".to_string() } else { e.message });
+                            event["unavailable"] = json!(if e.status == 403 {
+                                "reading virt-handler's metrics needs get pods/proxy in KubeVirt's namespace"
+                                    .to_string()
+                            } else {
+                                e.message
+                            });
                         }
                     }
                 }
@@ -294,7 +325,12 @@ pub async fn progress_topic(ctx: Ctx, p: Value, sink: Sink) -> RpcResult<()> {
             // After a migration, one read of the VMI's current node clears
             // virt-handler's finished queue (see `TaskReporter::prepare`), so
             // a migration started elsewhere — a node drain — is sampled too.
-            let node = vmi.as_ref().and_then(|v| v.pointer("/status/nodeName")).and_then(Value::as_str).unwrap_or_default().to_string();
+            let node = vmi
+                .as_ref()
+                .and_then(|v| v.pointer("/status/nodeName"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
             if !state.is_null() && !node.is_empty() && metrics.as_ref().is_none_or(|(seen, _)| seen != &node) {
                 metrics = match HandlerMetrics::locate(&kube, &node).await {
                     Ok(found) => {

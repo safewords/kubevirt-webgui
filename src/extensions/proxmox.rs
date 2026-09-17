@@ -99,7 +99,8 @@ fn session(ctx: &Ctx, id: &str) -> RpcResult<Arc<PveSession>> {
     let mut all = sessions().lock().unwrap();
     all.retain(|_, s| s.last_used.lock().unwrap().elapsed() < SESSION_IDLE);
     let found = all.get(id).filter(|s| s.owner == user).cloned();
-    let found = found.ok_or_else(|| RpcError::new(401, "ProxmoxSessionExpired", "the Proxmox session has ended; connect again"))?;
+    let found = found
+        .ok_or_else(|| RpcError::new(401, "ProxmoxSessionExpired", "the Proxmox session has ended; connect again"))?;
     *found.last_used.lock().unwrap() = Instant::now();
     Ok(found)
 }
@@ -126,7 +127,9 @@ async fn host_key(ctx: Ctx, p: Value) -> RpcResult {
     let port = p.port.unwrap_or(22);
     let addr = allow_list(&ctx).resolve(&p.host, port).await.map_err(RpcError::bad_request)?;
     let key = probe(addr, &p.host).await.map_err(pve_error)?;
-    Ok(json!({ "host": p.host, "address": addr.ip().to_string(), "port": port, "algorithm": key.algorithm, "fingerprint": key.fingerprint }))
+    Ok(
+        json!({ "host": p.host, "address": addr.ip().to_string(), "port": port, "algorithm": key.algorithm, "fingerprint": key.fingerprint }),
+    )
 }
 
 async fn connect(ctx: Ctx, p: Value) -> RpcResult {
@@ -153,7 +156,10 @@ async fn connect(ctx: Ctx, p: Value) -> RpcResult {
         return Err(RpcError::bad_request("the user name is not valid"));
     }
     let auth = match (p.private_key.filter(|k| !k.trim().is_empty()), p.password.filter(|k| !k.is_empty())) {
-        (Some(key), _) => Auth::Key { pem: SecretString::from(key), passphrase: p.passphrase.filter(|s| !s.is_empty()).map(SecretString::from) },
+        (Some(key), _) => Auth::Key {
+            pem: SecretString::from(key),
+            passphrase: p.passphrase.filter(|s| !s.is_empty()).map(SecretString::from),
+        },
         (None, Some(password)) => Auth::Password(SecretString::from(password)),
         (None, None) => return Err(RpcError::bad_request("a password or a private key is required")),
     };
@@ -162,10 +168,17 @@ async fn connect(ctx: Ctx, p: Value) -> RpcResult {
     let target = Target { host: p.host.clone(), addr, user };
 
     let ssh = Ssh::connect(&target, &auth, &p.fingerprint).await.map_err(pve_error)?;
-    let out = ssh.run("command -v pvesh >/dev/null || { echo 'pvesh not found' >&2; exit 3; }; hostname; pveversion", 64 * 1024).await.map_err(pve_error)?;
+    let out = ssh
+        .run("command -v pvesh >/dev/null || { echo 'pvesh not found' >&2; exit 3; }; hostname; pveversion", 64 * 1024)
+        .await
+        .map_err(pve_error)?;
     ssh.close().await;
     if !out.ok() {
-        return Err(pve_error(format!("{} is not a Proxmox VE host ({})", p.host, if out.stderr.is_empty() { "no pvesh" } else { &out.stderr })));
+        return Err(pve_error(format!(
+            "{} is not a Proxmox VE host ({})",
+            p.host,
+            if out.stderr.is_empty() { "no pvesh" } else { &out.stderr }
+        )));
     }
     let text = out.stdout_text();
     let mut lines = text.lines().map(str::trim);
@@ -179,7 +192,14 @@ async fn connect(ctx: Ctx, p: Value) -> RpcResult {
         hex::encode(bytes)
     };
     tracing::info!(user = %owner, host = %p.host, node = %node, "Proxmox session opened");
-    let session = PveSession { owner, target, auth, fingerprint: p.fingerprint, node: node.clone(), last_used: Mutex::new(Instant::now()) };
+    let session = PveSession {
+        owner,
+        target,
+        auth,
+        fingerprint: p.fingerprint,
+        node: node.clone(),
+        last_used: Mutex::new(Instant::now()),
+    };
     sessions().lock().unwrap().insert(id.clone(), Arc::new(session));
     Ok(json!({ "session": id, "node": node, "version": version, "host": p.host }))
 }
@@ -201,7 +221,11 @@ async fn disconnect(ctx: Ctx, p: Value) -> RpcResult {
 async fn documents(ssh: &Ssh, script: &str) -> RpcResult<Vec<Value>> {
     let out = ssh.run(script, OUTPUT_LIMIT).await.map_err(pve_error)?;
     if !out.ok() {
-        return Err(pve_error(if out.stderr.is_empty() { format!("the command failed ({:?})", out.status) } else { out.stderr }));
+        return Err(pve_error(if out.stderr.is_empty() {
+            format!("the command failed ({:?})", out.status)
+        } else {
+            out.stderr
+        }));
     }
     Ok(out
         .stdout_text()
@@ -273,7 +297,11 @@ async fn fetch(ssh: &Ssh, node: &str, vmid: u32) -> RpcResult<Fetched> {
         ),
     )
     .await?;
-    let raw = docs.first().and_then(Value::as_object).cloned().ok_or_else(|| pve_error(format!("VM {vmid} on {node} has no readable configuration")))?;
+    let raw = docs
+        .first()
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| pve_error(format!("VM {vmid} on {node} has no readable configuration")))?;
     let status = docs.get(1).and_then(|s| s["status"].as_str()).unwrap_or("unknown").to_string();
     let timezone = docs.get(2).and_then(|t| t["timezone"].as_str()).map(String::from);
 
@@ -502,7 +530,10 @@ async fn import(ctx: Ctx, p: Value) -> RpcResult {
         }
         seen_keys.push(disk.key.clone());
         if !uploads_expected.contains(&disk.data_volume) {
-            return Err(RpcError::bad_request(format!("{} maps to {}, which is not an upload DataVolume template of the VM", disk.key, disk.data_volume)));
+            return Err(RpcError::bad_request(format!(
+                "{} maps to {}, which is not an upload DataVolume template of the VM",
+                disk.key, disk.data_volume
+            )));
         }
     }
     if let Some(orphan) = uploads_expected.iter().find(|dv| !p.disks.iter().any(|d| &d.data_volume == *dv)) {
@@ -530,23 +561,53 @@ async fn import(ctx: Ctx, p: Value) -> RpcResult {
         // change while they are read.
         let fetched = fetch(&ssh, &node, vmid).await?;
         if fetched.status != "stopped" {
-            return Err(RpcError::new(409, "SourceRunning", format!("VM {vmid} is {} on Proxmox — shut it down first; an import copies the disks of a stopped VM", fetched.status)));
+            return Err(RpcError::new(
+                409,
+                "SourceRunning",
+                format!(
+                    "VM {vmid} is {} on Proxmox — shut it down first; an import copies the disks of a stopped VM",
+                    fetched.status
+                ),
+            ));
         }
         if fetched.config.digest != p.digest {
-            return Err(RpcError::new(409, "SourceChanged", format!("VM {vmid}'s configuration changed since it was reviewed; open the import again")));
+            return Err(RpcError::new(
+                409,
+                "SourceChanged",
+                format!("VM {vmid}'s configuration changed since it was reviewed; open the import again"),
+            ));
         }
         if let Some(lock) = &fetched.config.lock {
             return Err(RpcError::new(409, "SourceLocked", format!("VM {vmid} is locked on Proxmox ({lock})")));
         }
-        task.log(format!("source: VM {vmid} ({}) on {node}, stopped, configuration {}", fetched.config.name, &p.digest.chars().take(12).collect::<String>()));
+        task.log(format!(
+            "source: VM {vmid} ({}) on {node}, stopped, configuration {}",
+            fetched.config.name,
+            &p.digest.chars().take(12).collect::<String>()
+        ));
 
         let mut jobs = Vec::new();
         for disk in &p.disks {
-            let found = fetched.config.disks.iter().find(|d| d.key == disk.key).ok_or_else(|| RpcError::bad_request(format!("VM {vmid} has no disk {}", disk.key)))?;
+            let found = fetched
+                .config
+                .disks
+                .iter()
+                .find(|d| d.key == disk.key)
+                .ok_or_else(|| RpcError::bad_request(format!("VM {vmid} has no disk {}", disk.key)))?;
             let volid = found.volid.clone().filter(|v| found.importable && valid_volid(v)).ok_or_else(|| {
-                RpcError::bad_request(format!("{} cannot be imported: {}", disk.key, found.note.clone().unwrap_or_else(|| "it is not on a Proxmox storage".into())))
+                RpcError::bad_request(format!(
+                    "{} cannot be imported: {}",
+                    disk.key,
+                    found.note.clone().unwrap_or_else(|| "it is not on a Proxmox storage".into())
+                ))
             })?;
-            jobs.push(DiskJob { vmid, key: disk.key.clone(), volid, data_volume: disk.data_volume.clone(), size: found.size_bytes });
+            jobs.push(DiskJob {
+                vmid,
+                key: disk.key.clone(),
+                volid,
+                data_volume: disk.data_volume.clone(),
+                size: found.size_bytes,
+            });
         }
 
         // Disks on a node's local storage are read on that node.
@@ -561,7 +622,10 @@ async fn import(ctx: Ctx, p: Value) -> RpcResult {
                 .and_then(|n| n["ip"].as_str())
                 .and_then(|ip| ip.parse::<std::net::IpAddr>().ok())
                 .ok_or_else(|| pve_error(format!("the address of node {node} is unknown to {}", pve.node)))?;
-            task.log(format!("{node} holds the VM; reading its disks there through the cluster's SSH from {}", pve.node));
+            task.log(format!(
+                "{node} holds the VM; reading its disks there through the cluster's SSH from {}",
+                pve.node
+            ));
             Some(ip.to_string())
         } else {
             None
@@ -581,7 +645,20 @@ async fn import(ctx: Ctx, p: Value) -> RpcResult {
         let mut meter = Meter::new();
         for (index, job) in jobs.iter().enumerate() {
             let label = format!("{} ({} of {})", job.key, index + 1, jobs.len());
-            let result = copy_disk(&task, &kube, &ssh, &watcher, ns, job, hop_ip.as_deref().map(|ip| (node.as_str(), ip)), &label, copied_before, total, &mut meter).await;
+            let result = copy_disk(
+                &task,
+                &kube,
+                &ssh,
+                &watcher,
+                ns,
+                job,
+                hop_ip.as_deref().map(|ip| (node.as_str(), ip)),
+                &label,
+                copied_before,
+                total,
+                &mut meter,
+            )
+            .await;
             match result {
                 Ok(bytes) => copied_before += job.size.unwrap_or(bytes),
                 Err(e) => {
@@ -600,7 +677,11 @@ async fn import(ctx: Ctx, p: Value) -> RpcResult {
             kube.patch(&path, &json!({ "spec": { "runStrategy": "Always" } }), PatchKind::Merge).await?;
             task.log("starting the VM");
         }
-        Ok(Some(format!("imported VM {vmid} as {ns}/{name}: {} disk(s), {:.2} GiB", jobs.len(), copied_before as f64 / GIB)))
+        Ok(Some(format!(
+            "imported VM {vmid} as {ns}/{name}: {} disk(s), {:.2} GiB",
+            jobs.len(),
+            copied_before as f64 / GIB
+        )))
     })
 }
 
@@ -611,9 +692,11 @@ const SOURCE_CHECK: Duration = Duration::from_secs(20);
 async fn source_state(ssh: &Ssh, vmid: u32) -> Option<(String, String)> {
     let docs = documents(ssh, "pvesh get /cluster/resources --type vm --output-format json").await.ok()?;
     let found = docs.first()?.as_array()?.iter().find(|r| r["vmid"] == vmid)?;
-    Some((found["status"].as_str().unwrap_or("unknown").to_string(), found["node"].as_str().unwrap_or_default().to_string()))
+    Some((
+        found["status"].as_str().unwrap_or("unknown").to_string(),
+        found["node"].as_str().unwrap_or_default().to_string(),
+    ))
 }
-
 
 #[allow(clippy::too_many_arguments)]
 async fn copy_disk(
@@ -630,21 +713,35 @@ async fn copy_disk(
     meter: &mut Meter,
 ) -> RpcResult<u64> {
     let dv = job.data_volume.as_str();
-    task.log(format!("{label}: {} → DataVolume {dv}{}", job.volid, job.size.map(|s| format!(", {:.2} GiB", s as f64 / GIB)).unwrap_or_default()));
+    task.log(format!(
+        "{label}: {} → DataVolume {dv}{}",
+        job.volid,
+        job.size.map(|s| format!(", {:.2} GiB", s as f64 / GIB)).unwrap_or_default()
+    ));
     // KubeVirt creates a template's DataVolume a moment after the VM.
     let dv_path = ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(ns).named(dv).path()?;
     let waiting = Instant::now();
     loop {
         match kube.get(&dv_path).await {
             Ok(_) => break,
-            Err(e) if e.is_not_found() && waiting.elapsed() < Duration::from_secs(120) => tokio::time::sleep(Duration::from_secs(2)).await,
-            Err(e) if e.is_not_found() => return Err(RpcError::internal(format!("KubeVirt did not create DataVolume {dv} within two minutes"))),
+            Err(e) if e.is_not_found() && waiting.elapsed() < Duration::from_secs(120) => {
+                tokio::time::sleep(Duration::from_secs(2)).await
+            }
+            Err(e) if e.is_not_found() => {
+                return Err(RpcError::internal(format!("KubeVirt did not create DataVolume {dv} within two minutes")));
+            }
             Err(e) => return Err(e.into()),
         }
     }
-    match datavolumes::follow(task, kube, ns, dv, &format!("disk {dv}"), &["UploadReady"], Duration::from_secs(15 * 60)).await? {
+    match datavolumes::follow(task, kube, ns, dv, &format!("disk {dv}"), &["UploadReady"], Duration::from_secs(15 * 60))
+        .await?
+    {
         Settled::Reached(_) => {}
-        Settled::Ready(phase) => return Err(RpcError::internal(format!("CDI did not start an upload server for {dv} (DataVolume {phase})"))),
+        Settled::Ready(phase) => {
+            return Err(RpcError::internal(format!(
+                "CDI did not start an upload server for {dv} (DataVolume {phase})"
+            )));
+        }
     }
     let token = upload_token(kube, ns, dv).await?;
     let upstream = open_upstream(&uploads().config, kube, &token, None).await.map_err(RpcError::internal)?;
@@ -653,7 +750,10 @@ async fn copy_disk(
     let command = export_command(&job.volid, hop);
     let raw = pump(task, ssh, watcher, &command, upstream, job, label, copied_before, total, meter).await?;
     task.log(format!("{label}: sent {:.2} GiB; CDI is writing the image", raw as f64 / GIB));
-    task.progress(Progress::bytes(copied_before + raw, (total > 0).then_some(total)).detail(format!("{label}: CDI is finishing the disk")));
+    task.progress(
+        Progress::bytes(copied_before + raw, (total > 0).then_some(total))
+            .detail(format!("{label}: CDI is finishing the disk")),
+    );
     datavolumes::follow(task, kube, ns, dv, &format!("disk {dv}"), &[], Duration::from_secs(4 * 3600)).await?;
     Ok(raw)
 }
@@ -694,12 +794,11 @@ async fn pump(
         let message = tokio::select! {
             message = channel.wait() => message,
             _ = watch.tick() => {
-                if let Some((state, node)) = source_state(watcher, job.vmid).await {
-                    if state != "stopped" {
+                if let Some((state, node)) = source_state(watcher, job.vmid).await
+                    && state != "stopped" {
                         source_started = Some(format!("{state} on {node}"));
                         break;
                     }
-                }
                 continue;
             }
         };
@@ -721,12 +820,21 @@ async fn pump(
                         raw = bytes;
                         let done = copied_before + raw;
                         let rate = meter.rate(done);
-                        task.progress(Progress::bytes(done, (total > 0).then_some(total)).rate(rate).detail(format!("copying {label}")));
+                        task.progress(
+                            Progress::bytes(done, (total > 0).then_some(total))
+                                .rate(rate)
+                                .detail(format!("copying {label}")),
+                        );
                         if let Some(size) = job.size.filter(|s| *s > 0) {
                             let tenth = raw * 10 / size;
                             if tenth > logged_tenth && tenth < 10 {
                                 logged_tenth = tenth;
-                                task.log(format!("{label}: {}% ({:.2} GiB){}", tenth * 10, raw as f64 / GIB, rate.map(|r| format!(" at {:.0} MiB/s", r / (1024.0 * 1024.0))).unwrap_or_default()));
+                                task.log(format!(
+                                    "{label}: {}% ({:.2} GiB){}",
+                                    tenth * 10,
+                                    raw as f64 / GIB,
+                                    rate.map(|r| format!(" at {:.0} MiB/s", r / (1024.0 * 1024.0))).unwrap_or_default()
+                                ));
                             }
                         }
                     } else if !line.is_empty() && !line.ends_with("records in") && !line.ends_with("records out") {
@@ -749,11 +857,18 @@ async fn pump(
         return Err(RpcError::new(
             409,
             "SourceStarted",
-            format!("VM {} was started on Proxmox during the copy ({how}): a disk that changes while it is read is not a copy, so the import stopped. Shut the VM down and import it again.", job.vmid),
+            format!(
+                "VM {} was started on Proxmox during the copy ({how}): a disk that changes while it is read is not a copy, so the import stopped. Shut the VM down and import it again.",
+                job.vmid
+            ),
         ));
     }
     if proxy_gone {
-        let reason = upstream.finish(Duration::from_secs(30)).await.err().unwrap_or_else(|| "it closed the request early".into());
+        let reason = upstream
+            .finish(Duration::from_secs(30))
+            .await
+            .err()
+            .unwrap_or_else(|| "it closed the request early".into());
         return Err(RpcError::internal(format!("{label}: the upload proxy stopped accepting data: {reason}")));
     }
     if status != Some(0) {
@@ -763,7 +878,11 @@ async fn pump(
             (None, Some(signal)) => format!("signal {signal}"),
             (None, None) => "the connection closed".into(),
         };
-        return Err(pve_error(format!("{label}: reading {} on Proxmox failed ({how}){}", job.volid, if stderr.is_empty() { String::new() } else { format!(": {stderr}") })));
+        return Err(pve_error(format!(
+            "{label}: reading {} on Proxmox failed ({how}){}",
+            job.volid,
+            if stderr.is_empty() { String::new() } else { format!(": {stderr}") }
+        )));
     }
     if let Some(size) = job.size.filter(|s| raw != *s) {
         upstream.abort().await;

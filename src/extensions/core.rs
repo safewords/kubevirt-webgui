@@ -414,8 +414,7 @@ async fn resource_subresource(ctx: Ctx, p: Value) -> RpcResult {
     let query: Vec<(&str, Option<String>)> =
         p.query.iter().flatten().map(|(k, v)| (k.as_str(), Some(v.clone()))).collect();
     let path = with_query(&p.target.path()?, &query);
-    let content_type =
-        if method == Method::PATCH { "application/merge-patch+json" } else { "application/json" };
+    let content_type = if method == Method::PATCH { "application/merge-patch+json" } else { "application/json" };
     Ok(ctx.kube()?.request(method, &path, p.body.as_ref(), content_type).await?)
 }
 
@@ -434,7 +433,7 @@ async fn resource_logs(ctx: Ctx, p: Value) -> RpcResult {
     }
     let p: P = params(p)?;
     let path = with_query(
-        &ResourceRef::new("v1", "pods").ns(&p.namespace).named(&p.name).sub("log").path()?,
+        &ResourceRef::new("v1", "pods").ns(&p.namespace).named(&p.name).subresource("log").path()?,
         &[
             ("container", p.container),
             ("tailLines", Some(p.tail_lines.unwrap_or(500).min(10_000).to_string())),
@@ -458,7 +457,7 @@ async fn serviceaccount_token(ctx: Ctx, p: Value) -> RpcResult {
         expiration_seconds: Option<i64>,
     }
     let p: P = params(p)?;
-    let path = ResourceRef::new("v1", "serviceaccounts").ns(&p.namespace).named(&p.name).sub("token").path()?;
+    let path = ResourceRef::new("v1", "serviceaccounts").ns(&p.namespace).named(&p.name).subresource("token").path()?;
     let body = json!({
         "apiVersion": "authentication.k8s.io/v1",
         "kind": "TokenRequest",
@@ -500,11 +499,8 @@ async fn tasks_detail(ctx: Ctx, p: Value) -> RpcResult {
     }
     let p: P = params(p)?;
     let user = ctx.user()?;
-    let (info, log) = ctx
-        .state
-        .tasks
-        .detail(&user.username, &p.id)
-        .ok_or_else(|| RpcError::not_found("no such task"))?;
+    let (info, log) =
+        ctx.state.tasks.detail(&user.username, &p.id).ok_or_else(|| RpcError::not_found("no such task"))?;
     Ok(json!({ "task": info, "log": log }))
 }
 

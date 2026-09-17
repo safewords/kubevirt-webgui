@@ -105,7 +105,9 @@ impl WebSocketHandler for Gateway {
 
     async fn on_message(&self, socket: &Socket, message: Message) -> RainierResult<()> {
         let Message::Text(text) = message else { return Ok(()) };
-        let Some(conn) = self.conns.lock().unwrap().get(&socket.id()).cloned() else { return Ok(()) };
+        let Some(conn) = self.conns.lock().unwrap().get(&socket.id()).cloned() else {
+            return Ok(());
+        };
 
         if text.len() > self.state.settings.max_frame_bytes {
             conn.send(&error_frame(&None, &RpcError::bad_request("frame too large")));
@@ -137,7 +139,12 @@ impl WebSocketHandler for Gateway {
                     let conn = ctx.conn.clone();
                     let started = std::time::Instant::now();
                     let outcome = state.registry.call(ctx, &method, frame.params).await;
-                    tracing::debug!(method, elapsed_ms = started.elapsed().as_millis() as u64, ok = outcome.is_ok(), "call");
+                    tracing::debug!(
+                        method,
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        ok = outcome.is_ok(),
+                        "call"
+                    );
                     match outcome {
                         Ok(result) => conn.send(&json!({ "id": id, "op": "result", "result": result })),
                         Err(error) => conn.send(&error_frame(&id, &error)),

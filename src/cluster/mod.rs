@@ -126,10 +126,8 @@ impl Cluster {
     pub async fn load(settings: &Settings) -> anyhow::Result<Self> {
         let mut base = match settings.kube_context.as_deref() {
             Some(context) => {
-                let options = kube::config::KubeConfigOptions {
-                    context: Some(context.to_string()),
-                    ..Default::default()
-                };
+                let options =
+                    kube::config::KubeConfigOptions { context: Some(context.to_string()), ..Default::default() };
                 kube::Config::from_kubeconfig(&options).await?
             }
             None => kube::Config::infer().await?,
@@ -169,10 +167,8 @@ impl Cluster {
         if let Credential::Token { token } = credential {
             // Only the cluster's address and trust are kept: the user's token
             // replaces whatever identity the kubeconfig carried.
-            config.auth_info = kube::config::AuthInfo {
-                token: Some(SecretString::from(token.clone())),
-                ..Default::default()
-            };
+            config.auth_info =
+                kube::config::AuthInfo { token: Some(SecretString::from(token.clone())), ..Default::default() };
         }
 
         let client = kube::Client::try_from(config)
@@ -234,9 +230,7 @@ impl Kube {
             .map_err(|e| ApiError::bad_request(format!("invalid request: {e}")))?;
 
         self.client.send(request).await.map_err(|e| match e {
-            kube::Error::Api(status) => {
-                ApiError::new(status.code, status.reason.clone(), status.message.clone())
-            }
+            kube::Error::Api(status) => ApiError::new(status.code, status.reason.clone(), status.message.clone()),
             other => ApiError::transport(format!("the API server could not be reached: {other}")),
         })
     }
@@ -383,9 +377,11 @@ impl Kube {
             .body(Body::from(Vec::new()))
             .map_err(|e| ApiError::bad_request(format!("invalid request: {e}")))?;
 
-        let response = self.client.send(request).await.map_err(|e| {
-            ApiError::transport(format!("the console could not be reached: {e}"))
-        })?;
+        let response = self
+            .client
+            .send(request)
+            .await
+            .map_err(|e| ApiError::transport(format!("the console could not be reached: {e}")))?;
 
         if response.status() != StatusCode::SWITCHING_PROTOCOLS {
             let status = response.status();

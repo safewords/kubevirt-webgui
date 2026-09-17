@@ -50,7 +50,14 @@ impl ConsoleTickets {
     }
 
     /// A one-time ticket for a console.
-    pub fn issue(&self, kube: Kube, namespace: &str, name: &str, kind: ConsoleKind, user: &str) -> Result<String, ApiError> {
+    pub fn issue(
+        &self,
+        kube: Kube,
+        namespace: &str,
+        name: &str,
+        kind: ConsoleKind,
+        user: &str,
+    ) -> Result<String, ApiError> {
         segment("namespace", namespace)?;
         segment("name", name)?;
 
@@ -161,16 +168,18 @@ impl WebSocketHandler for ConsoleProxy {
             let _ = browser.close_with("console closed");
         });
 
-        self.upstreams.lock().unwrap().insert(
-            socket.id(),
-            Upstream { tx, tasks: vec![write_task.abort_handle(), read_task.abort_handle()] },
-        );
+        self.upstreams
+            .lock()
+            .unwrap()
+            .insert(socket.id(), Upstream { tx, tasks: vec![write_task.abort_handle(), read_task.abort_handle()] });
         Ok(())
     }
 
     async fn on_message(&self, socket: &Socket, message: Message) -> RainierResult<()> {
         let upstreams = self.upstreams.lock().unwrap();
-        let Some(upstream) = upstreams.get(&socket.id()) else { return Ok(()) };
+        let Some(upstream) = upstreams.get(&socket.id()) else {
+            return Ok(());
+        };
         let frame = match message {
             Message::Binary(bytes) => WsMessage::Binary(bytes.into()),
             Message::Text(text) => WsMessage::Binary(text.into_bytes().into()),
