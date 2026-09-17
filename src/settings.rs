@@ -32,6 +32,9 @@ pub struct Settings {
     pub disabled_extensions: Vec<String>,
     /// The largest frame a client may send on the gateway socket.
     pub max_frame_bytes: usize,
+    /// Proxmox VE hosts the importer may connect to over SSH: host names,
+    /// addresses, CIDR ranges, or `*`. Empty: importing is off.
+    pub proxmox_allowed_hosts: Vec<String>,
 }
 
 fn list(env: &Env, key: &str) -> Vec<String> {
@@ -63,6 +66,7 @@ impl Settings {
             plugin_dir: optional(env, "GUI_PLUGIN_DIR").map(std::path::PathBuf::from),
             disabled_extensions: list(env, "GUI_DISABLED_EXTENSIONS"),
             max_frame_bytes: env.int("GUI_MAX_FRAME_BYTES", 16 * 1024 * 1024).max(64 * 1024) as usize,
+            proxmox_allowed_hosts: list(env, "PROXMOX_ALLOWED_HOSTS"),
         }
     }
 }

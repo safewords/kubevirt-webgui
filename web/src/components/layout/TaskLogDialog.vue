@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { faListCheck, faStop } from '@fortawesome/free-solid-svg-icons'
 import Modal from '@/components/ui/Modal.vue'
 import Notice from '@/components/ui/Notice.vue'
+import TaskProgress from '@/components/common/TaskProgress.vue'
 import { useTasks } from '@/stores/tasks'
 import { dateTime, duration, time } from '@/util/format'
 import { errorMessage } from '@/api/gateway'
@@ -41,6 +42,7 @@ watch(
       <button class="btn btn-sm" :class="tab === 'status' ? 'bg-surface-3' : 'btn-ghost'" @click="tab = 'status'">Status</button>
       <button v-if="task?.status === 'running'" class="btn btn-sm btn-danger ml-auto" @click="tasks.stopTask(id)"><Fa :icon="faStop" /> Stop</button>
     </div>
+    <TaskProgress v-if="task?.status === 'running' && task.progress" :progress="task.progress" class="mb-3" />
     <Notice v-if="error" kind="error">{{ error }}</Notice>
     <div v-else-if="tab === 'output'" ref="scroller" class="h-[52vh] overflow-auto rounded-md border border-line bg-surface-0 p-3 font-mono text-[12px] leading-relaxed">
       <div v-for="(line, i) in log" :key="i" class="whitespace-pre-wrap">

@@ -12,6 +12,7 @@ import { isTrue } from '@/util/kubevirt'
 import DataTable, { type Column } from '@/components/ui/DataTable.vue'
 import Notice from '@/components/ui/Notice.vue'
 import MigrateDialog from './MigrateDialog.vue'
+import MigrationProgress from '@/components/common/MigrationProgress.vue'
 
 const props = defineProps<{ ctx: ObjectContext }>()
 
@@ -53,8 +54,9 @@ async function cancel(m: KObject | null) {
 
 <template>
   <div class="space-y-4 p-3">
-    <Notice v-if="state && !state.completed" kind="info" title="Migration in progress">
-      {{ state.sourceNode }} → {{ state.targetNode ?? 'choosing a node' }}{{ state.mode ? ` (${state.mode})` : '' }}, started {{ dateTime(state.startTimestamp) }}
+    <Notice v-if="state && !state.completed && !state.failed" kind="info" title="Migration in progress">
+      <div class="mb-1.5">Started {{ dateTime(state.startTimestamp) }}</div>
+      <MigrationProgress :namespace="ctx.namespace!" :name="ctx.name" />
     </Notice>
     <Notice v-else-if="state?.failed" kind="warning" title="The last migration failed">{{ state.failureReason ?? 'No reason reported' }}</Notice>
 

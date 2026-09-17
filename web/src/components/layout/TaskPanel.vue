@@ -9,6 +9,7 @@ import { useCluster } from '@/stores/cluster'
 import { openTaskLog } from '@/services/dialogs'
 import { dateTime, duration } from '@/util/format'
 import type { KObject } from '@/api/types'
+import TaskProgress from '@/components/common/TaskProgress.vue'
 
 const tasks = useTasks()
 const ui = useUi()
@@ -77,7 +78,7 @@ function startDrag(event: MouseEvent) {
             <th class="w-56">Target</th>
             <th class="w-48">User</th>
             <th>Description</th>
-            <th class="w-64">Status</th>
+            <th class="w-80">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -90,7 +91,8 @@ function startDrag(event: MouseEvent) {
             <td class="truncate">
               <span class="inline-flex items-center gap-1.5" :class="statusIcon[task.status].class">
                 <Fa :icon="statusIcon[task.status].icon" :spin="statusIcon[task.status].spin" />
-                <span v-if="task.status === 'running'">running {{ duration(Date.now() - task.startedAt) }}</span>
+                <TaskProgress v-if="task.status === 'running' && task.progress" :progress="task.progress" compact class="text-fg" />
+                <span v-else-if="task.status === 'running'">running {{ duration(Date.now() - task.startedAt) }}</span>
                 <span v-else-if="task.status === 'ok'">OK</span>
                 <span v-else class="truncate" :title="task.message">{{ task.message ?? task.status }}</span>
               </span>

@@ -27,7 +27,6 @@
 //! cluster, through a port-forward to the proxy pod made as the user.
 
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -189,15 +188,36 @@ impl Uploads {
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
-type UploadBody = StreamBody<std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Frame<Bytes>, Infallible>> + Send>>>;
+type UploadBody = StreamBody<std::pin::Pin<Box<dyn futures_util::Stream<Item = Result<Frame<Bytes>, std::io::Error>> + Send>>>;
 
 /// An open upload request: chunks go in `body`, the proxy's answer comes out
-/// of `response`.
-struct Upstream {
-    body: mpsc::Sender<Bytes>,
-    response: JoinHandle<Result<(u16, String), String>>,
+/// of `response`. Dropping `body` ends the request; sending an `Err` aborts it
+/// mid-body, so CDI sees a broken upload rather than a short image.
+pub struct Upstream {
+    pub body: mpsc::Sender<Result<Bytes, std::io::Error>>,
+    pub response: JoinHandle<Result<(u16, String), String>>,
     /// A note for the task log about how the proxy was reached.
-    route: String,
+    pub route: String,
+}
+
+impl Upstream {
+    /// End the body and wait for the proxy's verdict.
+    pub async fn finish(self, timeout: Duration) -> Result<(), String> {
+        drop(self.body);
+        match tokio::time::timeout(timeout, self.response).await {
+            Ok(Ok(Ok((status, _)))) if (200..300).contains(&status) => Ok(()),
+            Ok(Ok(Ok((status, body)))) => Err(format!("the upload proxy answered {status}: {body}")),
+            Ok(Ok(Err(e))) => Err(e),
+            Ok(Err(e)) => Err(format!("the upload was interrupted: {e}")),
+            Err(_) => Err("the upload proxy did not answer".into()),
+        }
+    }
+
+    /// Break the request off, so the partial data is not taken as an image.
+    pub async fn abort(self) {
+        let _ = self.body.send(Err(std::io::Error::other("upload aborted"))).await;
+        self.response.abort();
+    }
 }
 
 /// The CA that signs the upload proxy's certificate: from a file, or CDI's
@@ -279,9 +299,9 @@ fn tls_config(anchors: &[CertificateDer<'static>], strict: bool) -> Result<(rust
     Ok((config, false))
 }
 
-/// Open the upload request, streaming its body from the returned sender.
-async fn open_upstream(config: &UploadConfig, session: &UploadSession, token: &str) -> Result<Upstream, String> {
-    let kube = &session.kube;
+/// Open the upload request for `token`, streaming its body from the returned
+/// sender. Without a `content_length` the body is sent chunked.
+pub async fn open_upstream(config: &UploadConfig, kube: &Kube, token: &str, content_length: Option<u64>) -> Result<Upstream, String> {
     let (io, host, route): (Box<dyn Io>, String, String) = match &config.proxy_url {
         Some(url) => {
             let uri: http::Uri = url.parse().map_err(|e| format!("CDI_UPLOAD_PROXY_URL is not a URL: {e}"))?;
@@ -343,15 +363,18 @@ async fn open_upstream(config: &UploadConfig, session: &UploadSession, token: &s
         }
     });
 
-    let (body, chunks) = mpsc::channel::<Bytes>(2);
+    let (body, chunks) = mpsc::channel::<Result<Bytes, std::io::Error>>(2);
     let stream = futures_util::stream::unfold(chunks, |mut chunks| async move {
-        chunks.recv().await.map(|bytes| (Ok::<_, Infallible>(Frame::data(bytes)), chunks))
+        chunks.recv().await.map(|item| (item.map(Frame::data), chunks))
     });
-    let request = Request::post("/v1beta1/upload-async")
+    let mut request = Request::post("/v1beta1/upload-async")
         .header(header::HOST, host.as_str())
         .header(header::AUTHORIZATION, format!("Bearer {token}"))
-        .header(header::CONTENT_TYPE, "application/octet-stream")
-        .header(header::CONTENT_LENGTH, session.size)
+        .header(header::CONTENT_TYPE, "application/octet-stream");
+    if let Some(length) = content_length {
+        request = request.header(header::CONTENT_LENGTH, length);
+    }
+    let request = request
         .body(StreamBody::new(Box::pin(stream) as std::pin::Pin<Box<dyn futures_util::Stream<Item = _> + Send>>))
         .map_err(|e| format!("could not build the upload request: {e}"))?;
 
@@ -396,16 +419,8 @@ fn fail(socket: &Socket, session: &UploadSession, message: &str) {
 /// Close the request body and read the proxy's answer.
 async fn finish(socket: &Socket, active: &mut Active) {
     let Some(upstream) = active.upstream.take() else { return };
-    drop(upstream.body);
     active.finished = true;
-    let outcome = match tokio::time::timeout(Duration::from_secs(600), upstream.response).await {
-        Ok(Ok(Ok((status, _)))) if (200..300).contains(&status) => Ok(()),
-        Ok(Ok(Ok((status, body)))) => Err(format!("the upload proxy answered {status}: {body}")),
-        Ok(Ok(Err(e))) => Err(e),
-        Ok(Err(e)) => Err(format!("the upload was interrupted: {e}")),
-        Err(_) => Err("the upload proxy did not answer".into()),
-    };
-    match outcome {
+    match upstream.finish(Duration::from_secs(600)).await {
         Ok(()) => {
             active.session.set(UploadState::Finished);
             let _ = socket.send_json(&json!({ "done": true, "bytes": active.received }));
@@ -448,7 +463,7 @@ impl WebSocketHandler for UploadProxy {
                 Some(UploadState::Failed(reason)) => return fail(&browser, &session, &reason),
                 _ => return fail(&browser, &session, "CDI did not become ready for the upload"),
             };
-            match open_upstream(&uploads().config, &session, &token).await {
+            match open_upstream(&uploads().config, &session.kube, &token, Some(session.size)).await {
                 Ok(upstream) => {
                     tracing::info!(route = %upstream.route, "upload proxy connected");
                     let route = upstream.route.clone();
@@ -483,7 +498,7 @@ impl WebSocketHandler for UploadProxy {
                     fail(socket, &session, "more data than the declared size");
                     return Ok(());
                 }
-                if upstream.body.send(Bytes::from(chunk)).await.is_err() {
+                if upstream.body.send(Ok(Bytes::from(chunk))).await.is_err() {
                     // The proxy stopped reading: its answer says why.
                     finish(socket, &mut active).await;
                     return Ok(());

@@ -17,11 +17,18 @@ function labelled(node: KObject, prefix: string): string[] {
     .map(([key]) => key.slice(prefix.length))
 }
 
-/** Rough generational order, newest last, so the suggestion is the most capable common model. */
-const PREFERENCE = [
-  'Westmere', 'SandyBridge', 'IvyBridge', 'Haswell-noTSX', 'Haswell', 'Broadwell-noTSX', 'Broadwell', 'Skylake-Client', 'Skylake-Server', 'Cascadelake-Server', 'Icelake-Server',
-  'Opteron_G3', 'Opteron_G4', 'Opteron_G5', 'EPYC', 'EPYC-Rome', 'EPYC-Milan', 'EPYC-Genoa',
-]
+/**
+ * Roughly how capable each model is, Intel and AMD on one scale (x86-64
+ * microarchitecture level, then later extensions), so the suggestion is the
+ * most capable common model. Opteron_G3 lacks SSE4.2 and POPCNT, which
+ * Windows 11 and current Linux distributions need; SandyBridge has them.
+ */
+const CAPABILITY: Record<string, number> = {
+  Conroe: 1.0, Penryn: 1.1, Opteron_G1: 1.0, Opteron_G2: 1.05, Opteron_G3: 1.2,
+  Nehalem: 2.0, Westmere: 2.1, Opteron_G4: 2.4, SandyBridge: 2.5, IvyBridge: 2.6, Opteron_G5: 2.7,
+  'Haswell-noTSX': 3.0, Haswell: 3.0, EPYC: 3.05, 'Broadwell-noTSX': 3.1, Broadwell: 3.1, 'Skylake-Client': 3.2, 'EPYC-Rome': 3.3, 'EPYC-Milan': 3.4,
+  'Skylake-Server': 4.0, 'Cascadelake-Server': 4.1, 'Icelake-Server': 4.2, SapphireRapids: 4.3, 'EPYC-Genoa': 4.4,
+}
 
 export function useCpuModels() {
   const inv = useInventory()
@@ -36,11 +43,7 @@ export function useCpuModels() {
     if (!nodes.value.length) return []
     const sets = nodes.value.map((n) => new Set(labelled(n, MODEL)))
     const shared = [...sets[0]].filter((m) => sets.every((s) => s.has(m)))
-    const rank = (m: string) => {
-      const base = m.replace(/-v\d+$/, '')
-      const i = PREFERENCE.indexOf(base)
-      return i === -1 ? -1 : i
-    }
+    const rank = (m: string) => CAPABILITY[m.replace(/-v\d+$/, '')] ?? 0
     return shared.sort((a, b) => rank(b) - rank(a) || a.localeCompare(b))
   })
 

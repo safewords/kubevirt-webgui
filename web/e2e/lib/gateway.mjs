@@ -13,6 +13,8 @@ export class Gateway {
     this.subs = new Map()
     this.taskWaiters = new Map()
     this.taskLogs = new Map()
+    /** Every progress report seen per task, in order. */
+    this.taskProgress = new Map()
     this.tasks = new Map()
   }
 
@@ -134,6 +136,11 @@ export class Gateway {
     const updates = event.type === 'SYNC' ? event.tasks : [event.task]
     for (const task of updates) {
       this.tasks.set(task.id, task)
+      if (task.progress) {
+        const seen = this.taskProgress.get(task.id) ?? []
+        seen.push(task.progress)
+        this.taskProgress.set(task.id, seen)
+      }
       if (event.line) {
         const lines = this.taskLogs.get(task.id) ?? []
         lines.push(event.line.text)

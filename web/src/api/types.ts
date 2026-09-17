@@ -62,6 +62,17 @@ export interface TaskInfo {
   endedAt?: number
   status: TaskStatus
   message?: string
+  /** Live progress of a running task: bytes copied, memory migrated. */
+  progress?: TaskProgress
+}
+
+export interface TaskProgress {
+  done: number
+  total?: number
+  unit: 'bytes' | 'items'
+  /** Units per second. */
+  rate?: number
+  detail?: string
 }
 
 export interface LogLine {

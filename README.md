@@ -121,6 +121,7 @@ Every disk is a **PersistentVolumeClaim**, filled by CDI (the Containerized Data
 | A container image (`quay.io/containerdisks/…`) | `registry: { url }` | Pulled and written to the PVC. Or use it directly as an ephemeral `containerDisk`. |
 | An existing disk or golden image | `pvc: { … }` / `sourceRef` → `DataSource` | Cloned — on Ceph RBD this is a copy-on-write CSI clone and nearly instant. |
 | A VM on VMware | `vddk: { … }` | Reads the VMDK straight from vSphere; for bulk moves use Forklift / MTV. |
+| A VM on Proxmox VE | `upload: {}` | **Create → Import from Proxmox**: the server reads the disks over SSH and streams them in — see below. |
 
 The **Images** screen is the ISO and template library, like a Proxmox storage's ISO Images and CT Templates content:
 
@@ -129,6 +130,41 @@ The **Images** screen is the ISO and template library, like a Proxmox storage's 
 - The **Create VM** wizard boots from an ISO by cloning the ISO's PVC into a per-VM CD-ROM disk next to a blank root disk. Each VM gets its own copy because RBD volumes are `ReadWriteOnce`; with CSI cloning that copy costs nothing.
 
 Storage defaults come from the `StorageProfile` for the chosen StorageClass (on `ceph-rbd`: `Block` volume mode, `ReadWriteMany` when possible so VMs can live-migrate).
+
+## Importing from Proxmox VE
+
+**Create → Import from Proxmox** copies a stopped Proxmox VM — settings and disks — into a KubeVirt VM:
+
+1. **Connect.** Enter a Proxmox node, `root` (or another user who may run `pvesh` and `pvesm`) and a password or SSH private key. The wizard shows the node's SSH host key fingerprint first; compare it with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the node. Credentials are sent only after you trust the key, and the browser remembers accepted keys and warns if one changes.
+2. **Virtual machine.** Every QEMU VM in the Proxmox cluster is listed. Running VMs cannot be picked: a disk that changes while it is read is not a copy.
+3. **Settings, Disks, Network.** The configuration arrives mapped, and every choice can be changed:
+   - **Firmware and chipset:** SeaBIOS/OVMF and Secure Boot carry over. KubeVirt only offers q35, so i440fx becomes q35.
+   - **Identity:** CPU sockets/cores, memory and the SMBIOS UUID and serial carry over.
+   - **Disks:** each disk keeps its bus (IDE becomes SATA), serial and boot order.
+   - **NICs:** each NIC keeps its model and MAC address, on the pod network or a Multus network.
+   - **Windows guests** get Hyper-V enlightenments and their local-time clock.
+4. **Confirm.** The YAML to be created is shown, with a list of what differs from Proxmox and what stays behind:
+   - EFI variables and TPM contents
+   - Snapshots
+   - PCI passthrough
+   - Rate limits and similar settings
+
+   **Import** runs a dry run first, then starts the import task.
+
+The import task:
+
+- **Checks the source.** It re-reads the VM and refuses if it is running, locked, or its configuration changed since you reviewed it. While copying, it rechecks every 20 seconds over a second SSH connection, and stops if the VM is started on Proxmox mid-copy.
+- **Creates the VM stopped,** with an upload DataVolume per disk.
+- **Streams each disk** with `pvesm export … raw+size`, compressed with `zstd`, straight into CDI's upload proxy. Nothing is written to temporary files on either side.
+  - The stream begins with a 4 KiB zstd frame holding one uncompressed block.
+  - This works around a CDI 1.65 bug: its format detection reuses the buffer holding the stream's first 512 bytes while the zstd decoder is still reading them.
+  - Without the workaround, a disk whose start compresses into many tiny blocks fails with "reserved block type encountered", or is silently corrupted.
+- **Handles local storage.** Disks on a node's local storage (LVM-thin, directories) are read on that node, through the Proxmox cluster's own root SSH.
+- **Reports progress live:** bytes copied, rate and time left, in the task viewer and the Tasks panel.
+- **Cleans up on failure.** If the import fails or is stopped, the half-imported VM is deleted. The deletion uses background propagation, so the name is free at once and Kubernetes removes the disks and CDI's upload pods afterwards.
+- **Leaves Proxmox unchanged.** Keep the Proxmox VM stopped once imported, since both copies have the same MAC address.
+
+The server makes these SSH connections, so it only connects to hosts listed in `PROXMOX_ALLOWED_HOSTS` (names, addresses or CIDR ranges); with it unset, importing is off. Credentials live in the server's memory for the wizard session (30 minutes idle) and the import, and are never stored. ZFS-backed disks are not supported yet (`pvesm` exports them only as ZFS streams).
 
 ## Optional integrations
 
@@ -154,6 +190,14 @@ For atomic-usb specifically, the VM's USB panel offers to enable `devices.client
 ### Live migration and CPU models
 
 A VM started with the default `host-model` CPU can only migrate to a node with the **same host CPU**. The Migrate dialog marks nodes with a different host CPU and suggests models every node supports. A migration that cannot be placed reports the scheduler's reason in the task log within seconds; KubeVirt itself only fails it after five minutes. On a mixed cluster, give the VM a common CPU model — Hardware → Processors — the way you would pick a common CPU type in Proxmox.
+
+A running migration shows its **live transfer**:
+
+- memory sent and remaining
+- the transfer rate
+- how fast the guest is dirtying memory, with a warning when the guest dirties memory faster than it can be sent
+
+It appears on the VM's Migrations tab, under Datacenter → Migrations and as a progress bar on the migrate task. The figures are what virt-handler samples from libvirt every five seconds, read through the API server's pod proxy as the signed-in user. They need `get pods/proxy` in KubeVirt's namespace; without that permission migrations still work, just without figures.
 
 ## Extending it
 
@@ -250,7 +294,7 @@ node --test e2e/vm-power.test.mjs            # one suite
 The end-to-end suites in [`web/e2e/`](web/e2e) drive the GUI with playwright-core and check the outcome on the cluster through the gateway:
 
 - **Signing in:** a browser sign-in (`00-smoke`), and RBAC through a ServiceAccount token created in the GUI (`access`).
-- **VM operations:** power actions verified in the guest (`vm-power`), hardware, options and cloud-init edits (`vm-hardware`, `vm-options`, `vm-cloudinit`), the Create VM wizard to Finish (`vm-wizard`), clone and snapshot/rollback including disk data (`vm-clone-snapshot`), and live migration (`vm-migrate`).
+- **VM operations:** power actions verified in the guest (`vm-power`), hardware, options and cloud-init edits (`vm-hardware`, `vm-options`, `vm-cloudinit`), the Create VM wizard to Finish (`vm-wizard`), clone and snapshot/rollback including disk data (`vm-clone-snapshot`), live migration with its live progress under a bandwidth-limiting policy (`vm-migrate`), and importing a Proxmox VM — booted afterwards, its data disk compared byte for byte (`proxmox-import`).
 - **Disks:** resize, attach, clone and hotplug (`disk`, `hotplug`), CSI snapshots restored into a new disk with the data checked (`disk-snapshot`), plus upload through the in-cluster route (`upload`).
 - **Network and quotas:** services, firewall enforcement and quotas (`network`, `quota`).
 - **Cluster-wide:** node cordon/drain (`cluster-node`), KubeVirt feature gates (`cluster-feature-gates`), and atomic-usb attach/detach (`usb`).
@@ -261,6 +305,7 @@ The suites that touch shared resources are guarded:
 - **Node drain:** refuses a node that runs other VMs and never evicts pods.
 - **USB:** refuses a device that is already claimed.
 - **Feature gates:** `E2E_GATE_ACTION=cycle` ends as it started.
+- **Proxmox import:** creates its own throwaway Proxmox VM (`E2E_PROXMOX_VMID`, default 9901) and destroys it afterwards. Other Proxmox VMs are only listed. It needs root SSH to the nodes from the test machine, and the server started with `PROXMOX_ALLOWED_HOSTS`.
 
 The admin token comes from `E2E_TOKEN` or `.dev-token`.
 
@@ -295,6 +340,7 @@ Put it behind your ingress with TLS. Sockets need no special configuration beyon
 | `GUI_PLUGIN_DIR` | — | directory served at `/plugins/`; every `*.js` in it is loaded |
 | `GUI_PLUGIN_URLS` | — | more plugin module URLs, comma-separated |
 | `GUI_DISABLED_EXTENSIONS` | — | server extensions to switch off |
+| `PROXMOX_ALLOWED_HOSTS` | — (import off) | Proxmox VE hosts the importer may SSH to: names, addresses, CIDR ranges, or `*` |
 
 ## Security notes
 
@@ -302,4 +348,5 @@ Put it behind your ingress with TLS. Sockets need no special configuration beyon
 - Every API path is built from validated segments; a name containing `/`, `?` or `..` is rejected before any request is made.
 - Console and upload tickets are random 256-bit values, single-use and short-lived, and carry the user's own client.
 - The browser stores an encrypted ticket, never the raw token; tickets expire (`AUTH_SESSION_TTL`) and renewal re-validates the token with the API server.
+- The Proxmox importer connects only to `PROXMOX_ALLOWED_HOSTS`, to the address it checked (no DNS rebinding in between), pins the SSH host key the person confirmed, and keeps credentials in memory only, bound to the person who entered them.
 - Responses carry a strict Content-Security-Policy (`script-src 'self'`); runtime plugins must be served from the same origin (`GUI_PLUGIN_DIR`).

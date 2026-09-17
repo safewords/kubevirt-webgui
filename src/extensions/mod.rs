@@ -11,7 +11,9 @@ pub mod core;
 pub mod datavolumes;
 pub mod kubevirt;
 pub mod metrics;
+pub mod migration;
 pub mod nodes;
+pub mod proxmox;
 pub mod storage;
 
 use crate::rpc::{Extension, Registry};
@@ -25,6 +27,7 @@ pub fn builtin() -> Vec<Box<dyn Extension>> {
         Box::new(storage::Storage),
         Box::new(metrics::Metrics),
         Box::new(atomic_usb::AtomicUsb),
+        Box::new(proxmox::Proxmox),
     ]
 }
 

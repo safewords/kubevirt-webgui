@@ -17,6 +17,7 @@ import { dateTime, duration } from '@/util/format'
 import { routeTo } from '@/util/nav'
 import { useClusterWatch } from './helpers'
 import YamlDialog from './YamlDialog.vue'
+import MigrationProgress from '@/components/common/MigrationProgress.vue'
 
 defineProps<{ ctx: ObjectContext }>()
 const cluster = useCluster()
@@ -46,6 +47,7 @@ const columns: Column<KObject>[] = [
   { key: 'mode', label: 'Mode', value: (m) => m.status?.migrationState?.mode ?? '' },
   { key: 'started', label: 'Started', value: started },
   { key: 'duration', label: 'Duration', align: 'right', value: (m) => (ended(m) || now.value) - started(m) },
+  { key: 'progress', label: 'Progress', sortable: false, value: () => '' },
   { key: 'policy', label: 'Policy', value: (m) => m.status?.migrationState?.migrationPolicyName ?? '' },
   { key: 'actions', label: '', sortable: false, value: () => '' },
 ]
@@ -152,6 +154,9 @@ async function deletePolicy(p: KObject) {
         </template>
         <template #cell-started="{ value }">{{ (value as number) ? dateTime(value as number) : '—' }}</template>
         <template #cell-duration="{ value }">{{ duration(Math.max(0, value as number)) }}</template>
+        <template #cell-progress="{ row }">
+          <MigrationProgress v-if="isRunning(row) && row.metadata.namespace" :namespace="row.metadata.namespace" :name="row.spec?.vmiName" compact />
+        </template>
         <template #cell-actions="{ row }">
           <button v-if="isRunning(row)" class="btn btn-sm btn-danger" @click.stop="cancel(row)"><Fa :icon="faBan" /> Cancel</button>
         </template>

@@ -18,6 +18,7 @@ import { setupVm } from './vm'
 import { setupNamespace } from './namespace'
 import { setupDisk } from './disk'
 import { setupCreate } from './create'
+import { setupProxmoxImport } from './proxmox'
 import { setupNetwork } from './network'
 
 export default definePlugin({
@@ -79,6 +80,7 @@ export default definePlugin({
     setupNamespace(api)
     setupDisk(api)
     setupCreate(api)
+    setupProxmoxImport(api)
     setupNetwork(api)
   },
 })

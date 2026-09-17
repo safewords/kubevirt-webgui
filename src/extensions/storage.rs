@@ -153,6 +153,23 @@ async fn begin(ctx: Ctx, p: Value) -> RpcResult {
     Ok(json!({ "task": reply["task"], "ticket": ticket, "path": format!("/ws/upload/{ticket}") }))
 }
 
+/// A token from CDI that lets exactly the claim `pvc` be written.
+pub async fn upload_token(kube: &Kube, ns: &str, pvc: &str) -> RpcResult<String> {
+    let request = json!({
+        "apiVersion": "upload.cdi.kubevirt.io/v1beta1",
+        "kind": "UploadTokenRequest",
+        "metadata": { "name": pvc, "namespace": ns },
+        "spec": { "pvcName": pvc }
+    });
+    let path = ResourceRef::new("upload.cdi.kubevirt.io/v1beta1", "uploadtokenrequests").ns(ns).path()?;
+    let response = kube.post(&path, &request).await?;
+    let token = str_at(&response, "/status/token").to_string();
+    if token.is_empty() {
+        return Err(RpcError::internal("CDI issued no upload token"));
+    }
+    Ok(token)
+}
+
 async fn run(task: &TaskHandle, kube: &Kube, upload: &UploadSession, body: &Value, storage: &str) -> RpcResult<Option<String>> {
     let ns = upload.namespace.as_str();
     let collection = ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(ns);
@@ -183,18 +200,7 @@ async fn run(task: &TaskHandle, kube: &Kube, upload: &UploadSession, body: &Valu
     }
 
     // 2. A token that lets exactly this claim be written.
-    let request = json!({
-        "apiVersion": "upload.cdi.kubevirt.io/v1beta1",
-        "kind": "UploadTokenRequest",
-        "metadata": { "name": upload.name, "namespace": ns },
-        "spec": { "pvcName": upload.name }
-    });
-    let token_path = ResourceRef::new("upload.cdi.kubevirt.io/v1beta1", "uploadtokenrequests").ns(ns).path()?;
-    let response = kube.post(&token_path, &request).await?;
-    let token = str_at(&response, "/status/token").to_string();
-    if token.is_empty() {
-        return Err(RpcError::internal("CDI issued no upload token"));
-    }
+    let token = upload_token(kube, ns, &upload.name).await?;
     upload.set(UploadState::Ready { token });
     task.log("upload server ready; receiving the file from the browser");
 

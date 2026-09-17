@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -38,6 +39,45 @@ pub struct TaskTarget {
     pub name: String,
 }
 
+/// How far a long task has got — bytes copied, memory migrated — shown as a
+/// live progress bar. Updates travel as task events without a log line.
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Progress {
+    /// Units done so far.
+    pub done: u64,
+    /// Units in all, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    /// `bytes` or `items`.
+    pub unit: String,
+    /// Units per second, when meaningful.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate: Option<f64>,
+    /// What is happening now, in a few words: `copying scsi0`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl Progress {
+    pub fn bytes(done: u64, total: Option<u64>) -> Self {
+        Self { done, total, unit: "bytes".into(), ..Default::default() }
+    }
+
+    pub fn rate(mut self, rate: Option<f64>) -> Self {
+        self.rate = rate;
+        self
+    }
+
+    pub fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+}
+
+/// Progress events at most this often per task; the last one always goes.
+const PROGRESS_EVERY: Duration = Duration::from_millis(500);
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskInfo {
@@ -53,6 +93,8 @@ pub struct TaskInfo {
     pub status: TaskStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<Progress>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,6 +117,7 @@ struct Entry {
     info: Mutex<TaskInfo>,
     log: Mutex<VecDeque<LogLine>>,
     abort: Mutex<Option<AbortHandle>>,
+    progress_sent: Mutex<Option<Instant>>,
 }
 
 /// Every task this process knows about.
@@ -118,6 +161,40 @@ impl TaskHandle {
         }
         let info = self.entry.info.lock().unwrap().clone();
         let _ = self.events.send(TaskEvent { user: info.user.clone(), task: info, line: Some(line) });
+    }
+
+    /// Report progress. Frequent calls are fine: browsers hear at most two a
+    /// second, and always the one that completes the total.
+    pub fn progress(&self, progress: Progress) {
+        let complete = progress.total.is_some_and(|total| progress.done >= total);
+        let info = {
+            let mut info = self.entry.info.lock().unwrap();
+            if info.status != TaskStatus::Running || info.progress.as_ref() == Some(&progress) {
+                return;
+            }
+            info.progress = Some(progress);
+            info.clone()
+        };
+        {
+            let mut sent = self.entry.progress_sent.lock().unwrap();
+            if !complete && sent.is_some_and(|at| at.elapsed() < PROGRESS_EVERY) {
+                return;
+            }
+            *sent = Some(Instant::now());
+        }
+        let _ = self.events.send(TaskEvent { user: info.user.clone(), task: info, line: None });
+    }
+
+    /// Clear the progress bar — between phases that have nothing to measure.
+    pub fn clear_progress(&self) {
+        let info = {
+            let mut info = self.entry.info.lock().unwrap();
+            if info.progress.take().is_none() {
+                return;
+            }
+            info.clone()
+        };
+        let _ = self.events.send(TaskEvent { user: info.user.clone(), task: info, line: None });
     }
 
     fn finish(&self, status: TaskStatus, message: Option<String>) {
@@ -174,11 +251,13 @@ impl TaskManager {
             ended_at: None,
             status: TaskStatus::Running,
             message: None,
+            progress: None,
         };
         let entry = Arc::new(Entry {
             info: Mutex::new(info.clone()),
             log: Mutex::new(VecDeque::new()),
             abort: Mutex::new(None),
+            progress_sent: Mutex::new(None),
         });
         {
             let mut tasks = self.tasks.lock().unwrap();

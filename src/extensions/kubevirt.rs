@@ -37,6 +37,7 @@ impl Extension for KubeVirt {
         }
         r.method("vm.migrate", migrate);
         r.method("vm.migrate.cancel", migrate_cancel);
+        r.topic("migration.progress", super::migration::progress_topic);
         r.method("vm.guest", guest);
         r.method("vm.screenshot", screenshot);
         r.method("vm.expandSpec", expand_spec);
@@ -313,6 +314,8 @@ async fn migrate(ctx: Ctx, p: Value) -> RpcResult {
         let source_node = str_at(&current, "/status/nodeName").to_string();
         task.log(format!("source node: {source_node}"));
         let cpu_hint = host_cpu_hint(&kube, &current, &source_node).await;
+        let mut transfer = super::migration::TaskReporter::new();
+        transfer.prepare(&kube, &p.namespace, &p.name, &source_node).await;
 
         let created = kube
             .post(&ResourceRef::new("kubevirt.io/v1", "virtualmachineinstancemigrations").ns(ns).path()?, &body)
@@ -360,6 +363,12 @@ async fn migrate(ctx: Ctx, p: Value) -> RpcResult {
                         last_scheduling = reason;
                     }
                 }
+            }
+
+            // Memory moves while the migration is Running; the source
+            // virt-handler samples it every five seconds.
+            if matches!(phase.as_str(), "TargetReady" | "Running") {
+                transfer.sample(&task, &kube, ns, &p.name, &source_node).await;
             }
 
             match phase.as_str() {

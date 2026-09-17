@@ -425,7 +425,7 @@ const summary = computed(() => {
             <FormRow label="TPM" hint="An emulated TPM 2.0 (swtpm), e.g. for Windows 11.">
               <label class="flex items-center gap-2 pt-1.5"><input v-model="model.tpm" type="checkbox" class="accent-[var(--accent)]" /> Add TPM</label>
             </FormRow>
-            <FormRow label="Graphics">
+            <FormRow label="Graphics" :hint="!model.graphics && model.firmware === 'bios' ? 'A SeaBIOS guest without a display device can hang before it boots; keep it, or use UEFI to run headless.' : null">
               <label class="flex items-center gap-2 pt-1.5"><input v-model="model.graphics" type="checkbox" class="accent-[var(--accent)]" /> VGA display (noVNC console)</label>
             </FormRow>
             <FormRow label="Tablet pointer" hint="Keeps the mouse pointer in step in the noVNC console.">
