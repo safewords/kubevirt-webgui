@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Semantic colour tokens. Components use these names (bg-surface, text-fg,
+ * border-line, …) so a theme is a change here rather than across every file.
+ */
+:root {
+  --surface-0: #eef1f5;
+  --surface-1: #ffffff;
+  --surface-2: #f5f7fa;
+  --surface-3: #e8ecf1;
+  --line: #d5dbe3;
+  --line-strong: #b9c2cd;
+  --fg: #1d2530;
+  --fg-muted: #5b6776;
+  --fg-subtle: #8591a0;
+  --accent: #e57000;
+  --accent-strong: #c75f00;
+  --accent-soft: #fff1e3;
+  --accent-fg: #ffffff;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --info: #2563eb;
+  --selection: #fde6cf;
+  --chart-1: #e57000;
+  --chart-2: #2f7fd1;
+  --chart-grid: #e3e8ee;
+}
+
+.dark {
+  --surface-0: #121417;
+  --surface-1: #1b1e23;
+  --surface-2: #22262c;
+  --surface-3: #2b3038;
+  --line: #333942;
+  --line-strong: #454d58;
+  --fg: #e3e7ec;
+  --fg-muted: #a1aab5;
+  --fg-subtle: #737d8a;
+  --accent: #f28a1f;
+  --accent-strong: #ff9e3d;
+  --accent-soft: #3a2a19;
+  --accent-fg: #16181b;
+  --ok: #3fb950;
+  --warn: #e3a008;
+  --bad: #f85149;
+  --info: #58a6ff;
+  --selection: #43301c;
+  --chart-1: #f28a1f;
+  --chart-2: #58a6ff;
+  --chart-grid: #2c3139;
+}
+
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --color-selection: var(--selection);
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  @apply bg-surface-0 text-fg antialiased;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-surface-2 px-2.5 h-7 text-[13px] font-medium text-fg whitespace-nowrap select-none transition-colors hover:bg-surface-3 hover:border-line-strong focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-45 disabled:pointer-events-none;
+  }
+  .btn-primary {
+    @apply border-accent bg-accent text-accent-fg hover:bg-accent-strong hover:border-accent-strong;
+  }
+  .btn-danger {
+    @apply border-bad/60 text-bad hover:bg-bad hover:text-white hover:border-bad;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent hover:bg-surface-3 hover:border-transparent;
+  }
+  .btn-sm {
+    @apply h-6 px-2 text-xs;
+  }
+  .input {
+    @apply w-full h-7 rounded-md border border-line bg-surface-1 px-2 text-[13px] text-fg placeholder:text-fg-subtle focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/25 disabled:opacity-60;
+  }
+  textarea.input {
+    @apply h-auto py-1.5;
+  }
+  select.input {
+    @apply pr-6;
+  }
+  .label {
+    @apply block text-xs font-medium text-fg-muted mb-1;
+  }
+  .card {
+    @apply rounded-lg border border-line bg-surface-1;
+  }
+  .card-header {
+    @apply flex items-center gap-2 px-3 h-9 border-b border-line text-[13px] font-semibold;
+  }
+  .table-dense {
+    @apply w-full border-collapse text-[13px];
+  }
+  .table-dense th {
+    @apply sticky top-0 z-[1] bg-surface-2 text-left font-semibold text-fg-muted px-2.5 h-8 border-b border-line whitespace-nowrap;
+  }
+  .table-dense td {
+    @apply px-2.5 h-8 border-b border-line/60 whitespace-nowrap;
+  }
+  .table-dense tbody tr {
+    @apply hover:bg-surface-2;
+  }
+  .table-dense tbody tr.selected {
+    @apply bg-selection;
+  }
+  .kv {
+    @apply grid grid-cols-[minmax(120px,max-content)_1fr] gap-x-4 gap-y-1.5 text-[13px];
+  }
+  .kv dt {
+    @apply text-fg-muted;
+  }
+  .kv dd {
+    @apply min-w-0 break-words;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded px-1.5 h-5 text-[11px] font-medium bg-surface-3 text-fg-muted whitespace-nowrap;
+  }
+  .panel-title {
+    @apply text-sm font-semibold text-fg;
+  }
+  .mono {
+    @apply font-mono text-[12px];
+  }
+}
