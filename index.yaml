@@ -1,2 +1,32 @@
 apiVersion: v1
-entries: {}
+entries:
+  kubevirt-webgui:
+  - annotations:
+      artifacthub.io/license: MIT OR Apache-2.0
+      artifacthub.io/links: |
+        - name: Documentation
+          url: https://github.com/safewords/kubevirt-webgui/tree/main/docs
+    apiVersion: v2
+    appVersion: 0.1.0
+    created: "2026-09-18T00:03:07.924496337Z"
+    description: An extensible, Proxmox-inspired web GUI for KubeVirt — libvirt/QEMU
+      virtual machines on Kubernetes.
+    digest: fa09e57bd79544e9c7218ff759f510ab7866a1466f9f9007ac66efd887a02abd
+    home: https://github.com/safewords/kubevirt-webgui
+    keywords:
+    - kubevirt
+    - virtualization
+    - virtual-machine
+    - proxmox
+    - kubernetes
+    maintainers:
+    - name: safewords
+      url: https://github.com/safewords
+    name: kubevirt-webgui
+    sources:
+    - https://github.com/safewords/kubevirt-webgui
+    type: application
+    urls:
+    - https://github.com/safewords/kubevirt-webgui/releases/download/chart-kubevirt-webgui-0.1.0/kubevirt-webgui-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-09-18T00:03:07.924502669Z"
