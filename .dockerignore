@@ -1,7 +1,0 @@
-target
-web/node_modules
-web/dist
-.git
-.idea
-.env
-deploy
