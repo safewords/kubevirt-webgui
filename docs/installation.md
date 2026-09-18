@@ -109,10 +109,19 @@ docker run --rm -p 8006:8006 \
   ghcr.io/safewords/kubevirt-webgui:latest
 ```
 
-The image runs as uid 65532 with no home directory, so the kubeconfig is named
-explicitly rather than left to be found. A kubeconfig whose credential comes
-from an `exec` plugin (EKS, GKE, `kubelogin`) will not work inside the
-container — the plugin binary is not in there. Sign in through the GUI instead.
+The image runs as uid 65532, whose home is `/home/nonroot`; a kubeconfig
+mounted at `/home/nonroot/.kube/config` is found without `KUBECONFIG` at all.
+Either way, a kubeconfig whose credential comes from an `exec` plugin (EKS,
+GKE, `kubelogin`) will not work inside the container — the plugin binary is not
+in there. Sign in through the GUI with a token instead.
+
+Without a cluster to talk to, the server refuses to start and says which two
+places it looked:
+
+```text
+kubevirt-webgui could not start: failed to infer config: in-cluster: (…),
+kubeconfig: (failed to read kubeconfig from "/home/nonroot/.kube/config": …)
+```
 
 ## Getting in
 
