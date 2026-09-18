@@ -1,5 +1,9 @@
 # kubevirt-webgui
 
+[![CI](https://github.com/safewords/kubevirt-webgui/actions/workflows/ci.yml/badge.svg)](https://github.com/safewords/kubevirt-webgui/actions/workflows/ci.yml)
+[![Release](https://github.com/safewords/kubevirt-webgui/actions/workflows/release.yml/badge.svg)](https://github.com/safewords/kubevirt-webgui/actions/workflows/release.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+
 An extensible, Proxmox-inspired web interface for **KubeVirt** — libvirt/QEMU
 virtual machines running on Kubernetes.
 
@@ -10,6 +14,24 @@ virtual machines running on Kubernetes.
 - **Extensible on both ends.** Server extensions add gateway methods; browser plugins add screens, toolbar actions, tree views and create-menu entries — built-in or loaded at runtime.
 
 ---
+
+![The datacenter summary: cluster health, resources and every node](docs/images/datacenter.png)
+
+## Documentation
+
+Everything below is a summary. The [documentation](docs/) is the long form.
+
+| | |
+|---|---|
+| [Installation](docs/installation.md) | what the cluster needs, Helm, plain manifests, Ingress |
+| [Authentication and permissions](docs/authentication.md) | signing in, tickets, RBAC, handing out access |
+| [Configuration](docs/configuration.md) | every environment variable, and the chart value that sets it |
+| [Virtual machines](docs/features/virtual-machines.md) · [Storage](docs/features/storage.md) · [Networking](docs/features/networking.md) | the screens, panel by panel |
+| [Datacenter](docs/features/datacenter.md) · [Nodes](docs/features/nodes.md) · [Namespaces](docs/features/namespaces.md) | the cluster screens |
+| [USB devices](docs/features/usb.md) · [Proxmox import](docs/features/proxmox-import.md) · [Tasks](docs/features/tasks.md) | the rest |
+| [Gateway protocol](docs/extending/gateway-protocol.md) · [Server extensions](docs/extending/server-extensions.md) · [Browser plugins](docs/extending/browser-plugins.md) | extending it |
+| [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Troubleshooting](docs/troubleshooting.md) | how it works and how to work on it |
+
 
 ## Proxmox → KubeVirt
 
@@ -133,38 +155,22 @@ Storage defaults come from the `StorageProfile` for the chosen StorageClass (on 
 
 ## Importing from Proxmox VE
 
-**Create → Import from Proxmox** copies a stopped Proxmox VM — settings and disks — into a KubeVirt VM:
+**Create → Import from Proxmox** copies a stopped Proxmox VM — settings and
+disks — into a KubeVirt VM. It connects over SSH from the server, shows the
+host key fingerprint before any credential is sent, maps the configuration for
+you to review, and streams each disk straight into CDI's upload proxy: no
+temporary files on either side, and nothing on the Proxmox host is changed.
 
-1. **Connect.** Enter a Proxmox node, `root` (or another user who may run `pvesh` and `pvesm`) and a password or SSH private key. The wizard shows the node's SSH host key fingerprint first; compare it with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the node. Credentials are sent only after you trust the key, and the browser remembers accepted keys and warns if one changes.
-2. **Virtual machine.** Every QEMU VM in the Proxmox cluster is listed. Running VMs cannot be picked: a disk that changes while it is read is not a copy.
-3. **Settings, Disks, Network.** The configuration arrives mapped, and every choice can be changed:
-   - **Firmware and chipset:** SeaBIOS/OVMF and Secure Boot carry over. KubeVirt only offers q35, so i440fx becomes q35.
-   - **Identity:** CPU sockets/cores, memory and the SMBIOS UUID and serial carry over.
-   - **Disks:** each disk keeps its bus (IDE becomes SATA), serial and boot order.
-   - **NICs:** each NIC keeps its model and MAC address, on the pod network or a Multus network.
-   - **Windows guests** get Hyper-V enlightenments and their local-time clock.
-4. **Confirm.** The YAML to be created is shown, with a list of what differs from Proxmox and what stays behind:
-   - EFI variables and TPM contents
-   - Snapshots
-   - PCI passthrough
-   - Rate limits and similar settings
+While it copies it re-checks the source every 20 seconds on a second
+connection, and stops if the VM is started on Proxmox mid-copy — a disk that
+changes while it is read is not a copy. A failed import cleans up after itself.
 
-   **Import** runs a dry run first, then starts the import task.
+Importing is off until an administrator lists the hosts the server may reach in
+`PROXMOX_ALLOWED_HOSTS`.
 
-The import task:
-
-- **Checks the source.** It re-reads the VM and refuses if it is running, locked, or its configuration changed since you reviewed it. While copying, it rechecks every 20 seconds over a second SSH connection, and stops if the VM is started on Proxmox mid-copy.
-- **Creates the VM stopped,** with an upload DataVolume per disk.
-- **Streams each disk** with `pvesm export … raw+size`, compressed with `zstd`, straight into CDI's upload proxy. Nothing is written to temporary files on either side.
-  - The stream begins with a 4 KiB zstd frame holding one uncompressed block.
-  - This works around a CDI 1.65 bug: its format detection reuses the buffer holding the stream's first 512 bytes while the zstd decoder is still reading them.
-  - Without the workaround, a disk whose start compresses into many tiny blocks fails with "reserved block type encountered", or is silently corrupted.
-- **Handles local storage.** Disks on a node's local storage (LVM-thin, directories) are read on that node, through the Proxmox cluster's own root SSH.
-- **Reports progress live:** bytes copied, rate and time left, in the task viewer and the Tasks panel.
-- **Cleans up on failure.** If the import fails or is stopped, the half-imported VM is deleted. The deletion uses background propagation, so the name is free at once and Kubernetes removes the disks and CDI's upload pods afterwards.
-- **Leaves Proxmox unchanged.** Keep the Proxmox VM stopped once imported, since both copies have the same MAC address.
-
-The server makes these SSH connections, so it only connects to hosts listed in `PROXMOX_ALLOWED_HOSTS` (names, addresses or CIDR ranges); with it unset, importing is off. Credentials live in the server's memory for the wizard session (30 minutes idle) and the import, and are never stored. ZFS-backed disks are not supported yet (`pvesm` exports them only as ZFS streams).
+The details — what is mapped, what stays behind, the shell pipeline each disk
+travels through and the CDI zstd bug it works around — are in
+[importing from Proxmox VE](docs/features/proxmox-import.md).
 
 ## Optional integrations
 
@@ -283,64 +289,59 @@ kubectl -n <namespace> create token <serviceaccount> --duration=8h   # sign in w
 ### Testing
 
 ```sh
-cargo test                                   # server unit tests
-cd web && npx vue-tsc --noEmit               # type-check the browser app
-
-# End to end, against a real cluster, through the real GUI (Edge or Chrome, headless)
-cd web && E2E_BASE=http://127.0.0.1:5173 npm run e2e
-node --test e2e/vm-power.test.mjs            # one suite
+cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked
+cd web && npm run typecheck && npm run build
 ```
 
-The end-to-end suites in [`web/e2e/`](web/e2e) drive the GUI with playwright-core and check the outcome on the cluster through the gateway:
+CI runs exactly those on every push and pull request.
 
-- **Signing in:** a browser sign-in (`00-smoke`), and RBAC through a ServiceAccount token created in the GUI (`access`).
-- **VM operations:** power actions verified in the guest (`vm-power`), hardware, options and cloud-init edits (`vm-hardware`, `vm-options`, `vm-cloudinit`), the Create VM wizard to Finish (`vm-wizard`), clone and snapshot/rollback including disk data (`vm-clone-snapshot`), live migration with its live progress under a bandwidth-limiting policy (`vm-migrate`), and importing a Proxmox VM — booted afterwards, its data disk compared byte for byte (`proxmox-import`).
-- **Disks:** resize, attach, clone and hotplug (`disk`, `hotplug`), CSI snapshots restored into a new disk with the data checked (`disk-snapshot`), plus upload through the in-cluster route (`upload`).
-- **Network and quotas:** services, firewall enforcement and quotas (`network`, `quota`).
-- **Cluster-wide:** node cordon/drain (`cluster-node`), KubeVirt feature gates (`cluster-feature-gates`), and atomic-usb attach/detach (`usb`).
+The end-to-end suites in [`web/e2e/`](web/e2e) drive the real GUI with
+playwright-core against a **real cluster** — creating VMs, uploading disks,
+migrating, snapshotting, importing from Proxmox — and check the outcome through
+the gateway. They are not run in CI, because no hosted runner has KubeVirt and
+CDI on it.
 
-Each suite works in its own `kve-e2e-*` namespace and deletes it afterwards (`E2E_KEEP=1` keeps it).
+```sh
+cd web && E2E_BASE=http://127.0.0.1:5173 npm run e2e
+```
 
-The suites that touch shared resources are guarded:
-- **Node drain:** refuses a node that runs other VMs and never evicts pods.
-- **USB:** refuses a device that is already claimed.
-- **Feature gates:** `E2E_GATE_ACTION=cycle` ends as it started.
-- **Proxmox import:** creates its own throwaway Proxmox VM (`E2E_PROXMOX_VMID`, default 9901) and destroys it afterwards. Other Proxmox VMs are only listed. It needs root SSH to the nodes from the test machine, and the server started with `PROXMOX_ALLOWED_HOSTS`.
-
-The admin token comes from `E2E_TOKEN` or `.dev-token`.
+Each suite works in its own `kve-e2e-*` namespace and deletes it afterwards.
+The ones that touch shared resources refuse to disturb anything they did not
+create: drain skips a node running other VMs, the USB suite refuses a device
+already claimed, and the Proxmox suite creates and destroys its own throwaway
+source VM. See [development](docs/development.md#the-e2e-suite).
 
 ### Deploying
 
 ```sh
-docker build -t registry.example.com/kubevirt-webgui:$TAG .
-docker push registry.example.com/kubevirt-webgui:$TAG
-
-kubectl apply -f deploy/kubevirt-webgui.yaml   # namespace, SA (no RBAC), deployment, service
-kubectl -n kubevirt-webgui create secret generic kubevirt-webgui-key \
-  --from-literal=APP_KEY="base64:$(head -c 32 /dev/urandom | base64)"
-kubectl -n kubevirt-webgui set image deploy/kubevirt-webgui kubevirt-webgui=registry.example.com/kubevirt-webgui:$TAG
+helm install kubevirt-webgui oci://ghcr.io/safewords/charts/kubevirt-webgui   --namespace kubevirt-webgui --create-namespace   --set ingress.enabled=true --set ingress.hosts[0].host=virt.example.com
 ```
 
-Put it behind your ingress with TLS. Sockets need no special configuration beyond WebSocket support; set `GUI_ALLOWED_ORIGINS` if the public hostname differs from the `Host` the server sees.
+Images are published for amd64 and arm64 at
+`ghcr.io/safewords/kubevirt-webgui`, and the chart both as an OCI artifact and
+as a Helm repository on the `gh-pages` branch. `deploy/kubevirt-webgui.yaml` is
+the same deployment without Helm.
+
+Full instructions, including what the cluster needs and the WebSocket timeouts
+an ingress controller needs raised, are in
+[installation](docs/installation.md).
 
 ### Configuration
 
+Everything is an environment variable, and the chart is a thin wrapper over
+them. The ones worth knowing before the first run:
+
 | Variable | Default | |
 |---|---|---|
-| `SERVER_HOST`, `SERVER_PORT` | `127.0.0.1`, `8006` | listen address |
 | `APP_KEY` | random per boot | seals sign-in tickets; set it so sessions survive restarts |
+| `AUTH_ALLOW_SERVER_IDENTITY` | `false` | offer signing in as the server's own identity — single-user installs only |
 | `KUBE_CONTEXT` | in-cluster, then current context | which cluster to manage |
-| `KUBE_API_SERVER` | from the kubeconfig | override the API server URL |
-| `AUTH_ALLOW_SERVER_IDENTITY` | `false` | offer signing in as the server's own identity |
-| `AUTH_SESSION_TTL` | `28800` | seconds a sign-in lasts (renewed while in use) |
-| `CONSOLE_TICKET_TTL` | `60` | seconds a console ticket may wait |
-| `CDI_UPLOAD_PROXY_URL` | API server service proxy | where uploads go (`https://cdi-uploadproxy.cdi.svc` in-cluster) |
-| `GUI_PRODUCT_NAME` | `kubevirt-webgui` | shown in the header |
-| `GUI_ALLOWED_ORIGINS` | same host | extra origins allowed to open sockets |
-| `GUI_PLUGIN_DIR` | — | directory served at `/plugins/`; every `*.js` in it is loaded |
-| `GUI_PLUGIN_URLS` | — | more plugin module URLs, comma-separated |
-| `GUI_DISABLED_EXTENSIONS` | — | server extensions to switch off |
-| `PROXMOX_ALLOWED_HOSTS` | — (import off) | Proxmox VE hosts the importer may SSH to: names, addresses, CIDR ranges, or `*` |
+| `GUI_ALLOWED_ORIGINS` | same host | origins allowed to open sockets, when the public hostname differs |
+| `PROXMOX_ALLOWED_HOSTS` | — (import off) | Proxmox VE hosts the importer may reach |
+| `GUI_PLUGIN_DIR`, `GUI_PLUGIN_URLS` | — | runtime plugins |
+
+The complete list, with defaults and the chart value that sets each one, is in
+[configuration](docs/configuration.md).
 
 ## Security notes
 
@@ -350,3 +351,16 @@ Put it behind your ingress with TLS. Sockets need no special configuration beyon
 - The browser stores an encrypted ticket, never the raw token; tickets expire (`AUTH_SESSION_TTL`) and renewal re-validates the token with the API server.
 - The Proxmox importer connects only to `PROXMOX_ALLOWED_HOSTS`, to the address it checked (no DNS rebinding in between), pins the SSH host key the person confirmed, and keeps credentials in memory only, bound to the person who entered them.
 - Responses carry a strict Content-Security-Policy (`script-src 'self'`); runtime plugins must be served from the same origin (`GUI_PLUGIN_DIR`).
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project by you, as defined in the Apache-2.0 license,
+shall be dual licensed as above, without any additional terms or conditions.

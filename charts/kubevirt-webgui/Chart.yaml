@@ -1,0 +1,27 @@
+apiVersion: v2
+name: kubevirt-webgui
+description: An extensible, Proxmox-inspired web GUI for KubeVirt — libvirt/QEMU virtual machines on Kubernetes.
+type: application
+
+# The chart is versioned independently of the application: `version` is the
+# chart's own, `appVersion` the image tag it defaults to.
+version: 0.1.0
+appVersion: "0.1.0"
+
+home: https://github.com/safewords/kubevirt-webgui
+sources:
+  - https://github.com/safewords/kubevirt-webgui
+keywords:
+  - kubevirt
+  - virtualization
+  - virtual-machine
+  - proxmox
+  - kubernetes
+maintainers:
+  - name: safewords
+    url: https://github.com/safewords
+annotations:
+  artifacthub.io/license: MIT OR Apache-2.0
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/safewords/kubevirt-webgui/tree/main/docs

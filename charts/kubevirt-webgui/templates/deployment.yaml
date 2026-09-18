@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubevirt-webgui.fullname" . }}
+  labels:
+    {{- include "kubevirt-webgui.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kubevirt-webgui.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubevirt-webgui.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "kubevirt-webgui.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --host=0.0.0.0
+            - --port={{ .Values.service.port }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            - name: APP_ENV
+              value: production
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubevirt-webgui.keySecretName" . }}
+                  key: APP_KEY
+            - name: GUI_PRODUCT_NAME
+              value: {{ .Values.settings.productName | quote }}
+            - name: AUTH_ALLOW_SERVER_IDENTITY
+              value: {{ .Values.settings.allowServerIdentity | quote }}
+            - name: AUTH_SESSION_TTL
+              value: {{ .Values.settings.sessionTtl | quote }}
+            - name: CONSOLE_TICKET_TTL
+              value: {{ .Values.settings.consoleTicketTtl | quote }}
+            - name: GUI_MAX_FRAME_BYTES
+              value: {{ .Values.settings.maxFrameBytes | quote }}
+            {{- with .Values.settings.allowedOrigins }}
+            - name: GUI_ALLOWED_ORIGINS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.settings.disabledExtensions }}
+            - name: GUI_DISABLED_EXTENSIONS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.settings.kubeContext }}
+            - name: KUBE_CONTEXT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.settings.kubeApiServer }}
+            - name: KUBE_API_SERVER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.plugins.urls }}
+            - name: GUI_PLUGIN_URLS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.plugins.directory }}
+            - name: GUI_PLUGIN_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.proxmox.allowedHosts }}
+            - name: PROXMOX_ALLOWED_HOSTS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

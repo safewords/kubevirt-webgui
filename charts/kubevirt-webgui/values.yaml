@@ -1,0 +1,166 @@
+# kubevirt-webgui — an extensible, Proxmox-inspired web GUI for KubeVirt.
+#
+# The single most important thing about this deployment: **the server holds no
+# Kubernetes privileges.** Its ServiceAccount is bound to nothing, and every
+# request it makes to the API server carries the signed-in user's own
+# credential. Cluster RBAC is the only authorisation there is, so an install
+# cannot grant anybody more than they already have.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/safewords/kubevirt-webgui
+  # Empty means the chart's appVersion, so the image follows the chart version.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The image is public on ghcr; a private mirror is what needs a pull secret.
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The token is mounted for the API server's address and CA bundle, not for
+  # its privileges — it has none. Turning this off means setting
+  # `settings.kubeApiServer` by hand, and the server then has no CA to trust.
+  automount: true
+
+# The key that seals sign-in tickets and console tickets. Base64 of exactly 32
+# bytes, with or without a `base64:` prefix.
+appKey:
+  # Generate one on first install and keep it across upgrades (the template
+  # reads the existing Secret back). Restarting with a *different* key signs
+  # everyone out; it does not lose any data.
+  generate: true
+  # Use your own Secret instead, with the key under `APP_KEY`:
+  #   kubectl -n <ns> create secret generic my-key \
+  #     --from-literal=APP_KEY="base64:$(head -c 32 /dev/urandom | base64)"
+  existingSecret: ""
+
+settings:
+  # The name in the browser tab and the top-left corner.
+  productName: kubevirt-webgui
+
+  # **Leave this off on anything shared.** It offers "sign in as the server
+  # identity" on the login screen, which hands every visitor whatever the
+  # ServiceAccount can do. It exists for single-user desktop installs where the
+  # server's identity *is* the user's.
+  allowServerIdentity: false
+
+  # How long a sign-in lasts, in seconds (minimum 300).
+  sessionTtl: 28800
+  # How long a console or upload ticket may be redeemed for, in seconds. Short
+  # by design: the ticket travels in a URL.
+  consoleTicketTtl: 60
+
+  # Browser origins allowed to open the WebSocket. Empty allows same-origin
+  # only, which is what an Ingress in front of this wants.
+  allowedOrigins: []
+
+  # Kubernetes context to manage. Empty uses the in-cluster config, which is
+  # what you want in a Pod.
+  kubeContext: ""
+  # Override the API server address. Empty uses the in-cluster one.
+  kubeApiServer: ""
+
+  # Largest WebSocket frame accepted, in bytes. Uploads are chunked well below
+  # this; raising it mostly raises what a client can make the server allocate.
+  maxFrameBytes: 16777216
+
+  # Built-in server extensions to switch off by name, e.g. ["atomic-usb"].
+  # Extensions already hide themselves when the cluster lacks their APIs; this
+  # is for hiding one the cluster *does* have.
+  disabledExtensions: []
+
+# Importing VMs from Proxmox VE. The importer connects to these hosts over SSH
+# as whoever the user signs in as, so this list is the boundary of where the
+# server may be pointed: names, addresses, CIDR ranges, or "*".
+#
+# **Empty switches importing off**, which is the default. A host must be listed
+# before anyone can even ask for its host key.
+proxmox:
+  allowedHosts: []
+  #  - 10.0.0.0/24
+  #  - pve.example.com
+
+# Browser plugins loaded at runtime, in addition to the built-in ones. URLs are
+# fetched by the browser; a path is served by this server itself.
+plugins:
+  urls: []
+  #  - /plugins/my-plugin.js
+  # Serve a directory of plugin files from the pod. Mount it yourself with
+  # extraVolumes/extraVolumeMounts (a ConfigMap is the usual way) and name the
+  # mount path here.
+  directory: ""
+
+service:
+  type: ClusterIP
+  port: 8006
+  annotations: {}
+  # For type: LoadBalancer, pin the address rather than letting it move:
+  # loadBalancerIP: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: virt.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: virt-example-com-tls
+  #    hosts: [virt.example.com]
+
+# The browser holds a WebSocket open for the whole session, and consoles stream
+# over it. An ingress controller that times idle connections out will cut
+# consoles; Traefik and ingress-nginx both need their read/send timeouts raised
+# beyond the default 60s for long console sessions.
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 512Mi
+
+# Liveness and readiness both hit /healthz, which answers as soon as the HTTP
+# server is up. It says nothing about the cluster being reachable — that is
+# deliberate, because a Kubernetes API outage should not restart the GUI that
+# is showing you the outage.
+probes:
+  readiness:
+    periodSeconds: 5
+  liveness:
+    periodSeconds: 20
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+extraEnv: []
+#  - name: RUST_LOG
+#    value: info,kubevirt_webgui=debug
+extraVolumes: []
+extraVolumeMounts: []

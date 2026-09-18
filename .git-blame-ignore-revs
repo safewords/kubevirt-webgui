@@ -1,0 +1,5 @@
+# Formatting-only commits, skipped by `git blame --ignore-revs-file .git-blame-ignore-revs`
+# (git config blame.ignoreRevsFile .git-blame-ignore-revs makes it the default).
+
+# Make the tree clean for CI: clippy, then rustfmt
+4f34d7df7a9b87fe3d447d20d001550316e7d928

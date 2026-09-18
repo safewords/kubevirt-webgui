@@ -1,0 +1,44 @@
+{{ .Values.settings.productName }} is installed as {{ include "kubevirt-webgui.fullname" . }}.
+
+Reach it:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if eq .Values.service.type "LoadBalancer" }}
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "kubevirt-webgui.fullname" . }} -w
+  (the address appears under EXTERNAL-IP, then open http://<address>:{{ .Values.service.port }})
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "kubevirt-webgui.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  then open http://127.0.0.1:{{ .Values.service.port }}
+{{- end }}
+
+Signing in: with your own Kubernetes credentials — a token, or a kubeconfig you
+paste in. The server has no privileges of its own, so what you can see and do
+is exactly what your RBAC allows, and nothing an install can widen.
+
+  kubectl -n {{ .Release.Namespace }} create token <serviceaccount>   # one way to get a token
+
+{{ if .Values.settings.allowServerIdentity -}}
+!! AUTH_ALLOW_SERVER_IDENTITY is ON. Anybody who can open this page can act as
+!! the server's ServiceAccount, without signing in. That is meant for a
+!! single-user desktop install. Turn it off for anything shared:
+!!   --set settings.allowServerIdentity=false
+{{ end -}}
+
+{{- if .Values.proxmox.allowedHosts }}
+Importing from Proxmox VE is enabled for: {{ join ", " .Values.proxmox.allowedHosts }}
+{{- else }}
+Importing from Proxmox VE is off. Turn it on by listing the hosts the server
+may connect to:
+  --set 'proxmox.allowedHosts={10.0.0.0/24}'
+{{- end }}
+
+{{- if and .Values.appKey.generate (not .Values.appKey.existingSecret) }}
+
+The key sealing sign-in tickets is kept in the Secret
+{{ include "kubevirt-webgui.fullname" . }}-key and reused on upgrade.
+`helm uninstall` deletes it, which only means open sessions stop working.
+{{- end }}
+
+Documentation: https://github.com/safewords/kubevirt-webgui/tree/main/docs
