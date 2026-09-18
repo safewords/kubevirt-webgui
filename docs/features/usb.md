@@ -22,7 +22,7 @@ sockets KubeVirt gives a VM. Two custom resources carry the whole model:
 
 | Resource | Scope | What it is |
 |---|---|---|
-| `UsbDevice` | cluster | one device an agent found plugged into a node |
+| `UsbDevice` | cluster | one device found plugged into a node |
 | `UsbDeviceClaim` | namespaced | "this VM wants that device", and the record of whether it has it |
 
 Both live in `atomicusb.safewords.io/v1alpha1`. The GUI adds a browser plugin

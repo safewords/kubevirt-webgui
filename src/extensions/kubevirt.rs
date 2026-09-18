@@ -212,7 +212,7 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                 let body = if options.force { json!({ "gracePeriod": 0 }) } else { json!({}) };
                 kube.put(&vm_sub("stop").path()?, Some(&body)).await?;
                 if !wait || before.is_none() {
-                    return Ok(Some("VM was not running".into()).filter(|_| before.is_none()));
+                    return Ok(before.is_none().then_some("VM was not running".into()));
                 }
                 wait_until(
                     &task,

@@ -583,7 +583,7 @@ async fn import(ctx: Ctx, p: Value) -> RpcResult {
         task.log(format!(
             "source: VM {vmid} ({}) on {node}, stopped, configuration {}",
             fetched.config.name,
-            &p.digest.chars().take(12).collect::<String>()
+            p.digest.chars().take(12).collect::<String>()
         ));
 
         let mut jobs = Vec::new();
