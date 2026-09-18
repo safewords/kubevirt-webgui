@@ -11,7 +11,7 @@ import TimeChart from '@/components/ui/TimeChart.vue'
 import StateBadge from '@/components/ui/StateBadge.vue'
 import Notice from '@/components/ui/Notice.vue'
 import { addresses, condition, instancetypeName, isTrue, memoryBytes, osName, preferenceName, runStrategy, templateSpec, vcpus, vmState, tags, NOTES_ANNOTATION } from '@/util/kubevirt'
-import { age, bytes, cores, dateTime } from '@/util/format'
+import { age, bytes, cores, dateTime, quantity } from '@/util/format'
 import { routeTo } from '@/util/nav'
 
 const props = defineProps<{ ctx: ObjectContext }>()
@@ -22,7 +22,7 @@ const vmi = computed(() => props.ctx.related.vmi)
 const state = computed(() => vmState(vm.value, vmi.value))
 const spec = computed(() => (vmi.value ? vmi.value.spec : templateSpec(vm.value)))
 const cpuCount = computed(() => vcpus(spec.value))
-const memory = computed(() => memoryBytes(spec.value) || Number(vmi.value?.status?.memory?.guestCurrent ? 0 : 0))
+const memory = computed(() => memoryBytes(spec.value) || quantity(vmi.value?.status?.memory?.guestCurrent))
 const ips = computed(() => addresses(vmi.value))
 
 const samples = ref<MetricSample[]>([])

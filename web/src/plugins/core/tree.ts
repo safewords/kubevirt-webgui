@@ -80,9 +80,7 @@ function diskNode(pvc: KObject, withNamespace = true): TreeNode {
 }
 
 function datacenter(children: TreeNode[]): TreeNode[] {
-  const cluster = useCluster()
-  const name = cluster.discovery ? `Datacenter` : 'Datacenter'
-  return [{ key: 'datacenter', label: name, icon: faBuilding, iconClass: 'text-accent', to: { kind: 'datacenter' }, children }]
+  return [{ key: 'datacenter', label: 'Datacenter', icon: faBuilding, iconClass: 'text-accent', to: { kind: 'datacenter' }, children }]
 }
 
 export function registerTreeViews(api: PluginApi) {

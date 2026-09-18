@@ -28,6 +28,9 @@ const columns = computed<Column<KObject>[]>(() => [
 ])
 
 const canAttach = (namespace?: string) => can({ verb: 'create', group: 'atomicusb.safewords.io', resource: 'usbdeviceclaims', namespace }) !== false
+// Detaching deletes the claim, so it is `delete` — gating it on `create` left
+// anyone who may only detach looking at a disabled button.
+const canDetach = (namespace?: string) => can({ verb: 'delete', group: 'atomicusb.safewords.io', resource: 'usbdeviceclaims', namespace }) !== false
 
 function claimFor(device: KObject): KObject | undefined {
   const a = device.status?.attachedTo
@@ -71,7 +74,7 @@ function detach(device: KObject) {
           @click.stop
         >{{ value }}</RouterLink>
         <span v-else class="text-fg-subtle">—</span>
-        <button v-if="row.status?.attachedTo" class="btn btn-sm btn-ghost ml-auto text-bad" :disabled="!canAttach(row.status.attachedTo.namespace)" @click.stop="detach(row)"><Fa :icon="faLinkSlash" /> Detach</button>
+        <button v-if="row.status?.attachedTo" class="btn btn-sm btn-ghost ml-auto text-bad" :disabled="!canDetach(row.status.attachedTo.namespace)" @click.stop="detach(row)"><Fa :icon="faLinkSlash" /> Detach</button>
         <button v-else-if="row.status?.phase === 'Available'" class="btn btn-sm ml-auto" @click.stop="attach(row)"><Fa :icon="faPlug" /> Attach</button>
       </span>
     </template>

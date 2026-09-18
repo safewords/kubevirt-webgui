@@ -32,7 +32,7 @@ export default definePlugin({
       id: 'attach-usb',
       kind: 'vm',
       group: 'more',
-      order: 40,
+      order: 50,
       title: 'Attach USB device…',
       icon: faUsb,
       visible: (ctx) => !!ctx.object,
