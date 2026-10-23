@@ -164,3 +164,33 @@ extraEnv: []
 #    value: info,kubevirt_webgui=debug
 extraVolumes: []
 extraVolumeMounts: []
+
+# Off-subnet client NAT for bridged (Multus) VMs: a node agent that rewrites
+# traffic from chosen client ranges (a VPN, say) to a LAN address inside each
+# VM's launcher pod, so a guest that only trusts its own subnet answers them.
+# Configured per VM under Network → Off-subnet client NAT; see
+# docs/features/networking.md.
+#
+# Unlike the GUI this is privileged, by necessity: it runs in the host's PID
+# namespace and enters launcher pods' network namespaces. Its own RBAC is
+# read-only except for one annotation on VMIs.
+netagent:
+  enabled: false
+  image:
+    repository: ghcr.io/safewords/kubevirt-webgui-netagent
+    # Empty means the chart's appVersion, like the GUI's image.
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Seconds between passes over this node's VMIs.
+  interval: 15
+  # KubeVirt's own label for nodes that run VMs.
+  nodeSelector:
+    kubevirt.io/schedulable: "true"
+  tolerations: []
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  priorityClassName: ""

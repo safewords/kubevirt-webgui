@@ -43,6 +43,23 @@ FROM runtime AS prebuilt
 ARG TARGETARCH
 COPY dist/${TARGETARCH}/kubevirt-webgui /usr/local/bin/kubevirt-webgui
 
+# --- the node agent ----------------------------------------------------------
+# `kubevirt-webgui netagent`, for off-subnet client NAT (docs/features/networking.md).
+# Not distroless: it drives iptables (nft backend, like KubeVirt's launcher
+# pods), ip and nsenter inside launcher pods' network namespaces.
+#   docker build --target netagent .
+FROM debian:trixie-slim AS netagent-base
+RUN apt-get update     && apt-get install -y --no-install-recommends iptables iproute2 util-linux iputils-ping     && rm -rf /var/lib/apt/lists/*
+ENV RUST_LOG=info
+ENTRYPOINT ["/usr/local/bin/kubevirt-webgui", "netagent"]
+
+FROM netagent-base AS netagent-prebuilt
+ARG TARGETARCH
+COPY dist/${TARGETARCH}/kubevirt-webgui /usr/local/bin/kubevirt-webgui
+
+FROM netagent-base AS netagent
+COPY --from=server /kubevirt-webgui /usr/local/bin/kubevirt-webgui
+
 # --- the default: everything from source -------------------------------------
 FROM runtime
 COPY --from=server /kubevirt-webgui /usr/local/bin/kubevirt-webgui

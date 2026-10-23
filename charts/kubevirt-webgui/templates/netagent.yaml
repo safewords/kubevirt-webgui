@@ -1,0 +1,114 @@
+{{- if .Values.netagent.enabled }}
+{{- $name := printf "%s-netagent" (include "kubevirt-webgui.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- /* Its own name label: sharing the GUI's selector labels would put these
+pods behind the GUI's Service. */}}
+{{- $selector := dict "app.kubernetes.io/name" (printf "%s-netagent" (include "kubevirt-webgui.name" .)) "app.kubernetes.io/instance" .Release.Name }}
+# The off-subnet client NAT agent: one per KubeVirt node. See values.yaml
+# (`netagent`) and docs/features/networking.md.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubevirt-webgui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: netagent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubevirt-webgui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: netagent
+rules:
+  # Read every VMI, and write one annotation on it: the status.
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachineinstances"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubevirt-webgui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: netagent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kubevirt-webgui.labels" . | nindent 4 }}
+    app.kubernetes.io/component: netagent
+spec:
+  selector:
+    matchLabels:
+      {{- toYaml $selector | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $selector | nindent 8 }}
+        app.kubernetes.io/component: netagent
+    spec:
+      serviceAccountName: {{ $name }}
+      # /proc of every process on the node, to find each VM's QEMU and enter
+      # its pod's network namespace; the node's network, for its ARP table.
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.netagent.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.netagent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.netagent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: netagent
+          image: "{{ .Values.netagent.image.repository }}:{{ .Values.netagent.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.netagent.image.pullPolicy }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NETAGENT_INTERVAL
+              value: {{ .Values.netagent.interval | quote }}
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              # NET_ADMIN: iptables, routes, neighbours. SYS_ADMIN: setns.
+              # SYS_PTRACE: reading another user's /proc/<pid>/ns. NET_RAW:
+              # the one ping that fills an empty ARP entry for the gateway.
+              add: ["NET_ADMIN", "SYS_ADMIN", "SYS_PTRACE", "NET_RAW"]
+          resources:
+            {{- toYaml .Values.netagent.resources | nindent 12 }}
+          volumeMounts:
+            # iptables takes a lock under /run.
+            - name: run
+              mountPath: /run
+      volumes:
+        - name: run
+          emptyDir:
+            medium: Memory
+{{- end }}

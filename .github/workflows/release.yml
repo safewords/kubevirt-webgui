@@ -125,6 +125,25 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - id: meta-netagent
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-netagent
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: netagent-prebuilt
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta-netagent.outputs.tags }}
+          labels: ${{ steps.meta-netagent.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   github-release:
     name: GitHub release
