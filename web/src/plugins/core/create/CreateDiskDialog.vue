@@ -18,7 +18,7 @@ import FormRow from './FormRow.vue'
 import NamespaceSelect from './NamespaceSelect.vue'
 import { ensureNamespace } from './namespaces'
 import StorageClassSelect from './StorageClassSelect.vue'
-import { claimGibFor, dataVolume, formatHint, imageNamespace, nameFromUrl, pvcGib, type ImageType } from './helpers'
+import { claimGibFor, dataVolume, exactGibFor, formatHint, imageNamespace, nameFromUrl, pvcGib, useImageProbe, type ImageType } from './helpers'
 import { startUpload } from './uploads'
 
 type Source = 'blank' | 'http' | 'registry' | 'pvc' | 'upload'
@@ -61,6 +61,26 @@ watch(url, (value) => {
   if (!nameTouched.value) name.value = nameFromUrl(value)
   if (library.value && !props.imageType) imageType.value = /\.iso(\.(xz|gz))?([?#]|$)/i.test(value) ? 'iso' : 'disk'
 })
+// The server reads the start of the file: its exact size and, for qcow2, the
+// virtual size it expands to.
+const { probe, probing, failure: probeFailure } = useImageProbe(computed(() => (source.value === 'http' ? url.value : '')))
+watch(probe, (found) => {
+  if (!found) return
+  if (found.virtualSize && !sizeTouched.value) sizeGib.value = exactGibFor(found.virtualSize)
+  if (library.value && !props.imageType) imageType.value = found.format === 'iso' ? 'iso' : 'disk'
+})
+const probeHint = computed(() => {
+  if (source.value !== 'http') return null
+  if (probing.value) return 'Reading the image’s size…'
+  if (probeFailure.value) return `Could not read the image’s size (${probeFailure.value}); size it by hand.`
+  const found = probe.value
+  if (!found) return null
+  const file = found.fileSize ? bytes(found.fileSize) : 'unknown size'
+  if (found.virtualSize && found.virtualSize !== found.fileSize) return `${found.format}, ${file} expanding to ${bytes(found.virtualSize)}: needs ${exactGibFor(found.virtualSize)} GiB.`
+  if (found.virtualSize) return `${found.format}, ${file}: needs ${exactGibFor(found.virtualSize)} GiB.`
+  return `${found.format}, ${file}: the size inside is only known once downloaded — size it for the expanded image.`
+})
+
 watch(file, (value) => {
   if (!value) return
   if (!nameTouched.value) name.value = nameFromUrl(value.name)
@@ -198,7 +218,7 @@ async function submit() {
       <FormRow
         label="Size (GiB)"
         required
-        :hint="compressedOrConverted ? 'Compressed and qcow2/VMDK/VHD images expand: size this for the image\'s virtual disk, not the file.' : source === 'http' || source === 'registry' ? 'Large enough for the image once written out raw.' : null"
+        :hint="probeHint ?? (compressedOrConverted ? 'Compressed and qcow2/VMDK/VHD images expand: size this for the image\'s virtual disk, not the file.' : source === 'http' || source === 'registry' ? 'Large enough for the image once written out raw.' : null)"
       >
         <input v-model.number="sizeGib" type="number" min="1" class="input" @input="sizeTouched = true" />
       </FormRow>

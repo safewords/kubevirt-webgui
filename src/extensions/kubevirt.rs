@@ -16,6 +16,7 @@ use crate::tasks::{TaskHandle, TaskTarget};
 
 use super::clone_access;
 use super::datavolumes::{self, Settled};
+use super::image_probe;
 
 pub struct KubeVirt;
 
@@ -54,6 +55,7 @@ impl Extension for KubeVirt {
         r.method("vm.volume.remove", volume_remove);
         r.method("console.ticket", console_ticket);
         r.method("datavolume.create", datavolume_create);
+        r.method("datavolume.probe", datavolume_probe);
     }
 }
 
@@ -1139,6 +1141,20 @@ async fn console_ticket(ctx: Ctx, p: Value) -> RpcResult {
 }
 
 // --- disks ------------------------------------------------------------------
+
+/// The size and format of the image at a URL, so a download can be given a
+/// disk that fits it.
+async fn datavolume_probe(ctx: Ctx, p: Value) -> RpcResult {
+    #[derive(Deserialize)]
+    struct P {
+        url: String,
+    }
+    let p: P = params(p)?;
+    // Signed-in users only: the server, not the browser, makes the request.
+    ctx.kube()?;
+    let probe = image_probe::probe(&p.url).await.map_err(RpcError::bad_request)?;
+    Ok(serde_json::to_value(probe).unwrap_or_default())
+}
 
 async fn datavolume_create(ctx: Ctx, p: Value) -> RpcResult {
     #[derive(Deserialize)]

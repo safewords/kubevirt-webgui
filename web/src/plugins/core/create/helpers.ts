@@ -8,12 +8,13 @@
  * receiving an upload — so the browser never handles the image bytes except
  * when it is the source.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import type { KObject } from '@/api/types'
 import { useWatch, useMultiWatch } from '@/stores/watch'
 import { useCluster } from '@/stores/cluster'
 import { can } from '@/stores/access'
 import { useInventory } from '@/plugins/core/inventory'
+import { gateway } from '@/api/gateway'
 import { quantity } from '@/util/format'
 
 export const IMAGE_TYPE_LABEL = 'kubevirt-webgui/image-type'
@@ -91,6 +92,52 @@ export function gib(value: number): string {
 /** The claim to hold an image file: a tenth extra, rounded up to whole GiB. */
 export function claimGibFor(bytes: number): number {
   return Math.max(1, Math.ceil((bytes * 1.1) / GIB))
+}
+
+/**
+ * The disk an image needs when its expanded size is known exactly — an ISO or
+ * raw image's length, a qcow2's virtual size. No margin: CDI adds the
+ * filesystem overhead itself for Filesystem-mode claims, and a Block claim
+ * holds exactly what it is given.
+ */
+export function exactGibFor(bytes: number): number {
+  return Math.max(1, Math.ceil(bytes / GIB))
+}
+
+/** What the server learned about the image at a URL (`datavolume.probe`). */
+export interface ImageProbe {
+  fileSize: number | null
+  /** The expanded size; null when it needs the download (a compressed file). */
+  virtualSize: number | null
+  format: string
+}
+
+/** Probe `url` as it is typed, debounced; the latest answer wins. */
+export function useImageProbe(url: Ref<string>) {
+  const probe = ref<ImageProbe | null>(null)
+  const probing = ref(false)
+  const failure = ref<string | null>(null)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let latest = 0
+  watch(url, (value) => {
+    clearTimeout(timer)
+    probe.value = null
+    failure.value = null
+    if (!/^https?:\/\/\S+$/.test(value.trim())) return
+    timer = setTimeout(async () => {
+      const ticket = ++latest
+      probing.value = true
+      try {
+        const answer = await gateway.call<ImageProbe>('datavolume.probe', { url: value.trim() }, { timeout: 30_000 })
+        if (ticket === latest) probe.value = answer
+      } catch (e) {
+        if (ticket === latest) failure.value = (e as { message?: string }).message ?? String(e)
+      } finally {
+        if (ticket === latest) probing.value = false
+      }
+    }, 600)
+  })
+  return { probe, probing, failure }
 }
 
 export function pvcGib(pvc: KObject | null | undefined): number {

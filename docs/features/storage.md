@@ -91,9 +91,24 @@ CDI converts it to raw with qemu-img`). OVA archives are not imported
 directly; extract the VMDK and import that.
 
 The size you give is the claim, not the file. A compressed or qcow2 image
-expands, so size it for the image's virtual disk — the dialog warns when the
-name suggests one of those. Getting this wrong fails late, in the importer,
-with `no space left on device`.
+expands, so size it for the image's virtual disk. Getting this wrong fails
+late, in the importer, with `no space left on device`.
+
+So the dialog asks the server first (`datavolume.probe`, a few hundred
+milliseconds after you stop typing the URL). The server makes one ranged `GET`
+for the first 64 KiB, following up to five redirects, and reads the file's
+length from `Content-Range` or `Content-Length` and its format from its magic
+bytes. An ISO or raw image needs exactly its length; a qcow2 needs the virtual
+size in its header, which is usually several times the file. Either way the
+size is set to that, rounded up to a whole GiB, with no margin: CDI adds the
+filesystem overhead itself for a Filesystem-mode claim, and a Block claim
+holds exactly what it is given. A compressed file (`xz`, `gzip`, `zstd`) says
+nothing about what is inside without downloading it, so the dialog says that
+and leaves the size to you, as it does when the server cannot be reached. The
+VM wizard's **Import a disk image from a URL** sizes the root disk the same
+way, and will not let it be set smaller. Only the sizes and the format go back
+to the browser; the request comes from this GUI's pod, not from CDI, so a URL
+only the importer can reach is not probed.
 
 ### DataSources and golden images
 

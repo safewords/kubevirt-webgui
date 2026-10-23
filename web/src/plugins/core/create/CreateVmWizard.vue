@@ -24,7 +24,7 @@ import FormRow from './FormRow.vue'
 import NamespaceSelect from './NamespaceSelect.vue'
 import { ensureNamespace, isNewNamespace } from './namespaces'
 import StorageClassSelect from './StorageClassSelect.vue'
-import { formatHint, imageGib, imageNamespace, pvcGib, useDataSources, useImages } from './helpers'
+import { exactGibFor, formatHint, imageGib, imageNamespace, pvcGib, useDataSources, useImageProbe, useImages } from './helpers'
 import { useCpuModels } from './cpuModels'
 import { CONTAINER_DISKS, buildVm, defaultModel, diskLabel, toYaml, type BootSource, type VmModel } from './vmBuilder'
 
@@ -128,6 +128,20 @@ watch(
   { immediate: true },
 )
 
+// An imported image's root disk is sized from what the server reads of it.
+const { probe: urlProbe, probing: urlProbing } = useImageProbe(computed(() => (model.source === 'url' ? model.url : '')))
+const urlNeedsGib = computed(() => (urlProbe.value?.virtualSize ? exactGibFor(urlProbe.value.virtualSize) : null))
+watch(urlNeedsGib, (gib) => {
+  if (gib && model.disks[0]) model.disks[0].size = gib
+})
+const urlHint = computed(() => {
+  if (urlProbing.value) return 'Reading the image’s size…'
+  const found = urlProbe.value
+  if (!found) return formatHint(model.url)
+  if (urlNeedsGib.value) return `${found.format}, ${bytes(found.virtualSize!)} expanded: the root disk is set to ${urlNeedsGib.value} GiB.`
+  return `${found.format}${found.fileSize ? `, ${bytes(found.fileSize)}` : ''}: the size inside is only known once downloaded — size the root disk for the expanded image.`
+})
+
 function selectIso(event: Event) {
   const key = (event.target as HTMLSelectElement).value
   const dv = isos.value.find((d) => `${d.metadata.namespace}/${d.metadata.name}` === key)
@@ -192,6 +206,7 @@ const errors = computed<Record<StepId, string[]>>(() => {
     if (!(d.size > 0)) e.disks.push(`Disk ${i}: size must be positive`)
   })
   if (model.source === 'clone' && model.clone && model.disks[0] && model.disks[0].size < model.clone.sizeGib) e.disks.push(`The root disk must be at least ${model.clone.sizeGib} GiB, the size of the clone source`)
+  if (model.source === 'url' && urlNeedsGib.value && model.disks[0] && model.disks[0].size < urlNeedsGib.value) e.disks.push(`The root disk must be at least ${urlNeedsGib.value} GiB, the image's expanded size`)
 
   if (model.useInstancetype && !model.instancetype) e.cpu.push('Choose an instance type')
   if (!model.useInstancetype && [model.sockets, model.cores, model.threads].some((n) => !Number.isInteger(n) || n < 1)) e.cpu.push('Sockets, cores and threads must be whole numbers of at least 1')
@@ -386,7 +401,7 @@ const summary = computed(() => {
               <Notice v-if="!isos.length" kind="info" class="mt-2">No ISO images yet. Add one under Datacenter → Images with “Download from URL” or “Upload”.</Notice>
             </FormRow>
 
-            <FormRow v-if="model.source === 'url'" label="Image URL" required :hint="formatHint(model.url)">
+            <FormRow v-if="model.source === 'url'" label="Image URL" required :hint="urlHint">
               <input v-model.trim="model.url" class="input mono" placeholder="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2" spellcheck="false" />
             </FormRow>
 

@@ -42,3 +42,4 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-pki-types = { version = "1", features = ["std"] }
 # Proxmox import: SSH to the source host (pure Rust, ring crypto like the rest).
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+webpki-roots = "1"

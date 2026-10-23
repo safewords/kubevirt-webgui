@@ -10,6 +10,7 @@ pub mod atomic_usb;
 pub mod clone_access;
 pub mod core;
 pub mod datavolumes;
+pub mod image_probe;
 pub mod kubevirt;
 pub mod metrics;
 pub mod migration;
