@@ -14,6 +14,7 @@ use crate::gateway::console::ConsoleKind;
 use crate::rpc::{Ctx, Extension, ExtensionManifest, Registry, RpcError, RpcResult, params};
 use crate::tasks::{TaskHandle, TaskTarget};
 
+use super::clone_access;
 use super::datavolumes::{self, Settled};
 
 pub struct KubeVirt;
@@ -674,6 +675,9 @@ async fn create(ctx: Ctx, p: Value) -> RpcResult {
         kube.post(&format!("{vm_collection}?dryRun=All"), &p.vm).await?;
         task.log("VM definition validated by the API server");
 
+        let templates = p.vm.pointer("/spec/dataVolumeTemplates").and_then(Value::as_array).into_iter().flatten();
+        clone_access::grant(&task, &kube, ns, &clone_access::sources(ns, templates.chain(&p.data_volumes))).await;
+
         for object in &p.extra_objects {
             let (path, kind) = collection_for(object, ns)?;
             kube.post(&path, object).await?;
@@ -1094,6 +1098,7 @@ async fn datavolume_create(ctx: Ctx, p: Value) -> RpcResult {
     let target = TaskTarget { kind: "DataVolume".into(), namespace: Some(namespace.clone()), name: name.clone() };
 
     ctx.task("disk.create", target, format!("Create disk {namespace}/{name}"), move |task| async move {
+        clone_access::grant(&task, &kube, &namespace, &clone_access::sources(&namespace, [&p.body])).await;
         let collection = ResourceRef::new("cdi.kubevirt.io/v1beta1", "datavolumes").ns(&namespace);
         let created = kube.post(&collection.path()?, &p.body).await?;
         task.log(format!("created DataVolume {}", str_at(&created, "/metadata/name")));

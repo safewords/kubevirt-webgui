@@ -7,6 +7,7 @@
 //! back.
 
 pub mod atomic_usb;
+pub mod clone_access;
 pub mod core;
 pub mod datavolumes;
 pub mod kubevirt;
