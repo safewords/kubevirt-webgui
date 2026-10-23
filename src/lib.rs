@@ -12,6 +12,7 @@ pub mod cluster;
 pub mod extensions;
 pub mod gateway;
 pub mod metrics;
+pub mod netagent;
 pub mod proxmox;
 pub mod rpc;
 pub mod settings;
