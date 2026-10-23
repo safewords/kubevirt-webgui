@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import type { ObjectContext } from '@/plugins/registry'
 import Notice from '@/components/ui/Notice.vue'
+import OffsubnetNat from './OffsubnetNat.vue'
 import { templateSpec } from '@/util/kubevirt'
 
 const props = defineProps<{ ctx: ObjectContext }>()
@@ -97,5 +98,6 @@ const guestOnly = computed(() => (props.ctx.related.vmi?.status?.interfaces ?? [
     <Notice v-if="ctx.related.vmi && !rows.some((r) => r.infoSource.includes('guest-agent'))" kind="info">
       Guest interface names and extra addresses appear once the QEMU guest agent is running in the guest.
     </Notice>
+    <OffsubnetNat v-if="rows.some((r) => r.binding === 'bridge' && r.source.startsWith('Multus'))" :ctx="ctx" />
   </div>
 </template>
