@@ -143,6 +143,8 @@ fn vmi_state(vmi: &Option<Value>) -> String {
     }
 }
 
+const VMI_FAILED: &str = "the VMI failed to start";
+
 /// The message of a VM's `Failure` condition, when it has one.
 fn vm_failure(vm: &Value) -> Option<String> {
     condition(vm, "Failure", "True")
@@ -228,7 +230,7 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                     return Ok(None);
                 }
                 let requested = Instant::now();
-                wait_until(
+                let outcome = wait_until(
                     &task,
                     Duration::from_secs(600),
                     || async {
@@ -240,7 +242,7 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                         let both = both.as_ref()?;
                         match str_at(both, "/vmi/status/phase") {
                             "Running" => return Some(Ok(Some("VM is running".into()))),
-                            "Failed" => return Some(Err(RpcError::internal("the VMI failed to start"))),
+                            "Failed" => return Some(Err(RpcError::internal(VMI_FAILED))),
                             _ => {}
                         }
                         // With no VMI yet, a Failure on the VM (a disk CDI will
@@ -263,7 +265,21 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                         None => String::new(),
                     },
                 )
-                .await
+                .await;
+                match outcome {
+                    // virt-handler says why on the instance's events — a
+                    // network it could not set up, a disk it could not open.
+                    Err(e) if e.message == VMI_FAILED => {
+                        let failed = find(&kube, vmi(ns, n)).await.ok().flatten();
+                        let uid = failed.as_ref().map(|v| str_at(v, "/metadata/uid").to_string()).unwrap_or_default();
+                        let why = warning_events(&kube, ns, &uid).await.pop();
+                        Err(RpcError::internal(match why {
+                            Some(why) => format!("{VMI_FAILED}: {why}"),
+                            None => VMI_FAILED.to_string(),
+                        }))
+                    }
+                    other => other,
+                }
             }
             "stop" | "shutdown" => {
                 // Shutdown is ACPI with the guest's grace period; stop without
@@ -519,10 +535,24 @@ async fn target_pod_scheduling(kube: &Kube, namespace: &str, migration_uid: &str
 
 /// The events about a migration, oldest first, as "Reason: message".
 async fn migration_events(kube: &Kube, namespace: &str, migration: &str) -> Vec<String> {
+    events_matching(kube, namespace, format!("involvedObject.name={migration}")).await
+}
+
+/// The warnings about one object, by uid so an earlier instance of the same
+/// name does not speak for this one, oldest first.
+async fn warning_events(kube: &Kube, namespace: &str, uid: &str) -> Vec<String> {
+    if uid.is_empty() {
+        return Vec::new();
+    }
+    events_matching(kube, namespace, format!("involvedObject.uid={uid},type=Warning")).await
+}
+
+/// Events matching a field selector, oldest first, as "Reason: message".
+async fn events_matching(kube: &Kube, namespace: &str, selector: String) -> Vec<String> {
     let Ok(base) = ResourceRef::new("v1", "events").ns(namespace).path() else {
         return Vec::new();
     };
-    let path = with_query(&base, &[("fieldSelector", Some(format!("involvedObject.name={migration}")))]);
+    let path = with_query(&base, &[("fieldSelector", Some(selector))]);
     let Ok(list) = kube.get(&path).await else {
         return Vec::new();
     };
