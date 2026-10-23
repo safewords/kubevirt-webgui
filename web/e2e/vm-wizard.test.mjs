@@ -7,7 +7,7 @@ import { Gateway } from './lib/gateway.mjs'
 import { openGui } from './lib/browser.mjs'
 import { DV, VM, get, list, testNamespace, waitFor } from './lib/k8s.mjs'
 import { capture, closeDialogs, field, serialConsole, waitDataVolume, waitRunning } from './lib/vm.mjs'
-import { createMenu } from './lib/forms.mjs'
+import { chooseNamespace, createMenu } from './lib/forms.mjs'
 
 const CIRROS_QCOW2 = 'https://download.cirros-cloud.net/0.6.2/cirros-0.6.2-x86_64-disk.img'
 const ALPINE_ISO = 'https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-virt-3.20.3-x86_64.iso'
@@ -46,7 +46,7 @@ async function step(dialog, title) {
 
 /** General → name and namespace; CPU → a model every node runs; Memory → small. */
 async function common(dialog, name, { memoryMib = 256 } = {}) {
-  await field(dialog, 'Namespace').fill(ns.name)
+  await chooseNamespace(dialog, ns.name)
   await field(dialog, 'Name').fill(name)
   await step(dialog, 'CPU')
   await field(dialog, 'Cores').fill('1')
@@ -116,7 +116,7 @@ test('install from an ISO downloaded into the image library', { timeout: 20 * 60
   await field(download, 'URL').fill(ALPINE_ISO)
   // The content type is inferred from the .iso name.
   assert.ok(await download.locator('input[type=radio][value=iso]').isChecked(), 'recognised as an ISO')
-  await field(download, 'Namespace').fill(ns.name)
+  await chooseNamespace(download, ns.name)
   await field(download, 'Name').fill(iso)
   await field(download, 'Size (GiB)').fill('1')
   await download.getByRole('button', { name: 'Download' }).click()

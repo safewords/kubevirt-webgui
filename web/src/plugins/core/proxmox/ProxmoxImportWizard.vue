@@ -24,6 +24,7 @@ import { bytes, isDnsLabel } from '@/util/format'
 import { routeTo } from '@/util/nav'
 import FormRow from '@/plugins/core/create/FormRow.vue'
 import NamespaceSelect from '@/plugins/core/create/NamespaceSelect.vue'
+import { ensureNamespace, isNewNamespace } from '@/plugins/core/create/namespaces'
 import StorageClassSelect from '@/plugins/core/create/StorageClassSelect.vue'
 import { useCpuModels } from '@/plugins/core/create/cpuModels'
 import { KUBEVIRT_NIC_MODELS, buildImport, initialModel, problems, toYaml, warnings, type ImportModel, type PveVmDetail } from './mapping'
@@ -217,6 +218,10 @@ watch(nadNames, (names) => {
 const validation = ref<{ ok: boolean; message: string } | null>(null)
 async function dryRun(): Promise<boolean> {
   if (!built.value || !model.value) return false
+  if (isNewNamespace(model.value.namespace)) {
+    validation.value = { ok: true, message: `The namespace ${model.value.namespace} does not exist yet; it is created when you import, and the API server checks the VM then.` }
+    return true
+  }
   try {
     await k8s.create({ apiVersion: 'kubevirt.io/v1', resource: 'virtualmachines', namespace: model.value.namespace }, built.value.vm, { dryRun: true })
     validation.value = { ok: true, message: 'The API server accepts this virtual machine.' }
@@ -234,6 +239,13 @@ async function submit() {
     return
   }
   busy.value = true
+  try {
+    await ensureNamespace(model.value.namespace)
+  } catch (e) {
+    validation.value = { ok: false, message: `Could not create the namespace ${model.value.namespace}: ${errorMessage(e)}` }
+    busy.value = false
+    return
+  }
   if (!(await dryRun())) {
     busy.value = false
     return

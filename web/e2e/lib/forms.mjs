@@ -20,6 +20,20 @@ export function field(scope, label, { prefix = false } = {}) {
     .first()
 }
 
+/**
+ * Pick `name` in a NamespaceSelect: from the list when it is there (the GUI
+ * reads namespaces once a minute, so one made a moment ago may not be), or as
+ * a typed "New namespace…", which accepts an existing one too.
+ */
+export async function chooseNamespace(scope, name) {
+  const control = field(scope, 'Namespace')
+  if ((await control.evaluate((el) => el.tagName)) === 'SELECT') {
+    if (await control.locator(`option[value="${name}"]`).count()) return control.selectOption(name)
+    await control.selectOption({ label: 'New namespace…' })
+  }
+  await field(scope, 'Namespace').fill(name)
+}
+
 /** A button inside `scope` by its visible text. */
 export function button(scope, text, exact = false) {
   return scope.getByRole('button', { name: text, exact })

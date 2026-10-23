@@ -6,7 +6,7 @@ import { Gateway } from './lib/gateway.mjs'
 import { openGui } from './lib/browser.mjs'
 import { testNamespace, get, waitFor, PVC, DV, VM, VMI } from './lib/k8s.mjs'
 import { createVm } from './lib/fixtures.mjs'
-import { closeDialogs, createMenu, field, headerAction, headerMenu } from './lib/forms.mjs'
+import { chooseNamespace, closeDialogs, createMenu, field, headerAction, headerMenu } from './lib/forms.mjs'
 import { quantityBytes } from './lib/quantity.mjs'
 
 let gw, ns, gui
@@ -35,7 +35,7 @@ test('Create Disk makes an empty 1 GiB DataVolume on ceph-rbd', { timeout: 5 * 6
   await gui.goto('/dc/summary')
   await createMenu(page, 'Create Disk')
   const dialog = gui.dialog()
-  await field(dialog, 'Namespace').fill(ns.name)
+  await chooseNamespace(dialog, ns.name)
   await field(dialog, 'Name').fill(DISK)
   await field(dialog, 'Size (GiB)').fill('1')
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
@@ -117,7 +117,7 @@ test('An import that keeps failing says why, on the disk and in its task', { tim
   const dialog = gui.dialog()
   await field(dialog, 'Source').selectOption('http')
   await field(dialog, 'URL').fill('https://download.cirros-cloud.net/0.6.2/kve-e2e-no-such-image.img')
-  await field(dialog, 'Namespace').fill(ns.name)
+  await chooseNamespace(dialog, ns.name)
   await field(dialog, 'Name').fill(BROKEN)
   await field(dialog, 'Size (GiB)').fill('1')
   await dialog.getByRole('button', { name: 'Download', exact: true }).click()

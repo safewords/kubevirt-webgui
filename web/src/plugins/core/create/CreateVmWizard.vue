@@ -22,6 +22,7 @@ import { routeTo } from '@/util/nav'
 import { bytes, isDnsLabel, quantity } from '@/util/format'
 import FormRow from './FormRow.vue'
 import NamespaceSelect from './NamespaceSelect.vue'
+import { ensureNamespace, isNewNamespace } from './namespaces'
 import StorageClassSelect from './StorageClassSelect.vue'
 import { formatHint, imageGib, imageNamespace, pvcGib, useDataSources, useImages } from './helpers'
 import { useCpuModels } from './cpuModels'
@@ -228,6 +229,10 @@ const busy = ref(false)
 
 async function validate() {
   validation.value = null
+  if (isNewNamespace(model.namespace)) {
+    validation.value = { ok: true, message: `The namespace ${model.namespace} does not exist yet; it is created when you finish, and the API server checks the VM then.` }
+    return
+  }
   busy.value = true
   try {
     await k8s.create({ apiVersion: 'kubevirt.io/v1', resource: 'virtualmachines', namespace: model.namespace }, built.value.vm, { dryRun: true })
@@ -250,6 +255,7 @@ async function submit() {
   // belongs here, with the wizard still open to fix it — not on the page of
   // a VM that will never exist.
   try {
+    await ensureNamespace(model.namespace)
     await k8s.create({ apiVersion: 'kubevirt.io/v1', resource: 'virtualmachines', namespace: model.namespace }, vm, { dryRun: true })
   } catch (e) {
     validation.value = { ok: false, message: errorMessage(e) }

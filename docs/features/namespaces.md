@@ -276,6 +276,14 @@ Creating a namespace is a cluster-scoped right; without it the **Create**
 button is greyed with *You may not create namespaces*. On success the
 namespace list is reloaded and the new namespace opens.
 
+The forms that put something in a namespace — **Create VM**, **Create disk**,
+the image library's downloads and uploads, and the Proxmox importer — need no
+detour through here. Their **Namespace** dropdown lists the namespaces you can
+reach and ends with **New namespace…**, which turns it into a text box. A name
+that does not exist yet is marked *will be created* and is created, with no
+labels, when you finish; the dry run that normally checks the VM first waits
+until then. The same text box is how to name a namespace you cannot list.
+
 The table also reads `openshift.io/description`, so namespaces made on
 OpenShift keep their description here. Namespaces matching the built-in system
 pattern — `kube-*`, `kubevirt`, `cdi`, `default`, `cattle-*`, `calico-*`,

@@ -24,7 +24,7 @@ import { Gateway } from './lib/gateway.mjs'
 import { openGui } from './lib/browser.mjs'
 import { get, testNamespace, waitFor } from './lib/k8s.mjs'
 import { capture, cirrosRun, waitRunning } from './lib/vm.mjs'
-import { createMenu, field } from './lib/forms.mjs'
+import { chooseNamespace, createMenu, field } from './lib/forms.mjs'
 import { keep } from './lib/env.mjs'
 
 const HOST = process.env.E2E_PROXMOX_HOST ?? '10.0.4.3'
@@ -130,7 +130,7 @@ test('import a stopped Proxmox VM through the wizard; it boots from the copied d
   await wizard.getByText(`Importing VM ${VMID}`).waitFor({ timeout: 60_000 })
   assert.equal(await field(wizard, 'Name').inputValue(), NAME)
   assert.equal(await field(wizard, 'Memory (MiB)').inputValue(), '512')
-  await field(wizard, 'Namespace').fill(ns.name)
+  await chooseNamespace(wizard, ns.name)
   await wizard.getByRole('button', { name: 'Next' }).click()
 
   // Disks: both copied; the boot disk keeps its SCSI bus.

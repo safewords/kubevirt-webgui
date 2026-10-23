@@ -16,6 +16,7 @@ import { bytes, isDnsLabel } from '@/util/format'
 import { routeTo } from '@/util/nav'
 import FormRow from './FormRow.vue'
 import NamespaceSelect from './NamespaceSelect.vue'
+import { ensureNamespace } from './namespaces'
 import StorageClassSelect from './StorageClassSelect.vue'
 import { claimGibFor, dataVolume, formatHint, imageNamespace, nameFromUrl, pvcGib, type ImageType } from './helpers'
 import { startUpload } from './uploads'
@@ -106,6 +107,7 @@ async function submit() {
   const type = (imageType.value || null) as ImageType | null
   if (library.value) imageNamespace.value = namespace.value
   try {
+    await ensureNamespace(namespace.value)
     if (source.value === 'upload') {
       await startUpload(file.value!, { namespace: namespace.value, name: name.value, imageType: type ?? 'disk', storageClass: storageClass.value, diskSize: `${sizeGib.value}Gi` })
       emit('close', { upload: true })

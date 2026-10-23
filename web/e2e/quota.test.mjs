@@ -6,7 +6,7 @@ import { Gateway } from './lib/gateway.mjs'
 import { openGui } from './lib/browser.mjs'
 import { testNamespace, get, waitFor, VM } from './lib/k8s.mjs'
 import { createVm } from './lib/fixtures.mjs'
-import { createMenu, field } from './lib/forms.mjs'
+import { chooseNamespace, createMenu, field } from './lib/forms.mjs'
 
 let gw, ns, gui
 const QUOTA = 'vm-quota'
@@ -58,7 +58,7 @@ test('Creating a second VM past the quota fails with the reason, and leaves noth
   await gui.goto(`/c/namespace/${ns.name}/summary`)
   await createMenu(page, 'Create VM')
   const wizard = gui.dialog()
-  await field(wizard, 'Namespace').fill(ns.name)
+  await chooseNamespace(wizard, ns.name)
   await field(wizard, 'Name').fill('second-vm')
   await wizard.locator('nav').getByRole('button', { name: 'Confirm' }).click()
 
