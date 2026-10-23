@@ -85,6 +85,15 @@ Then reach it however you reach anything else:
 kubectl -n kubevirt-webgui port-forward svc/kubevirt-webgui 8006:8006
 ```
 
+`deploy/netagent.yaml` adds the optional node agent for
+[off-subnet client NAT](features/networking.md#off-subnet-client-nat), into the
+same namespace. It is the one privileged part — host PID and network
+namespaces — so it is a separate file, applied only if you want the feature:
+
+```sh
+kubectl apply -f https://raw.githubusercontent.com/safewords/kubevirt-webgui/main/deploy/netagent.yaml
+```
+
 ## Running it outside the cluster
 
 The server is equally happy on a laptop, talking to the cluster with your

@@ -10,6 +10,7 @@ three, and none of them invent a network of their own.
 - [Networks, at datacenter level](#networks-at-datacenter-level)
 - [The Network panel](#the-network-panel)
 - [Adding and editing a network device](#adding-and-editing-a-network-device)
+- [Off-subnet client NAT](#off-subnet-client-nat)
 - [Services](#services)
 - [Firewall](#firewall)
 - [Gotchas](#gotchas)
@@ -101,8 +102,9 @@ network in a namespace you cannot see is simply absent.
 
 ## The Network panel
 
-VM → **Network** is a read-only view of what is configured and what the guest
-reports. Its rows are the union of the configured interfaces and the ones the
+VM → **Network** is a view of what is configured and what the guest
+reports, plus — for a bridged Multus interface — the
+[off-subnet client NAT](#off-subnet-client-nat) setting. Its rows are the union of the configured interfaces and the ones the
 running instance reports, so a device attached outside the GUI still shows up.
 
 | Column | What it shows |
@@ -163,6 +165,129 @@ The patch is built from the VM as it is at the moment of saving, not as it was
 when the dialog opened, and a `409` conflict in the narrow window between the
 two is retried against the newer object. Two people editing different devices
 of the same VM therefore do not overwrite each other.
+
+## Off-subnet client NAT
+
+A bridged VM (a Multus `bridge` attachment, `autoattachPodInterface: false`)
+is on its LAN like any other machine, and answers it. A client on another
+subnet — a VPN, say — reaches it too: its packets arrive at the guest's tap
+device. Many guests ignore them anyway. A Windows guest moved from another
+hypervisor sees a new NIC, puts it on a network profile that only accepts its
+service ports from the local subnet, and never replies. Gateway-side
+masquerade does not help, and a LoadBalancer Service only covers listed ports
+and hides the client behind the node.
+
+**Off-subnet client NAT** fixes it without touching the guest: inside the
+VM's launcher pod, traffic from chosen client ranges to the guest is rewritten
+to come from a LAN address — by default the gateway — so the guest sees a
+local peer and answers. A node agent keeps the rules in place across
+restarts, migrations and node reboots.
+
+### Setting it up
+
+1. Install the node agent once: `netagent.enabled=true` in the chart, or
+   `kubectl apply -f deploy/netagent.yaml` alongside the plain manifests.
+2. VM → **Network** → **Off-subnet client NAT**, which appears when the VM has
+   a bridged interface on a Multus network. Tick the interface and fill in:
+
+| Field | Example | Notes |
+|---|---|---|
+| Client ranges | `10.1.0.0/24, 10.2.0.0/24` | IPv4 CIDRs to translate. **Presets…** offers ranges saved with **Save preset** (per browser) |
+| Guest address | `10.0.5.120` | empty is `auto`: the guest agent's IPv4 address on that interface |
+| Translate to | `10.0.0.1` | an IPv4 address on the guest's LAN — the gateway is the usual choice, since the guest already trusts it |
+| Gateway MAC | `74:ac:b9:e5:97:34` | empty is `auto`: read from the node's ARP table (pinging once if it has none), re-read every five minutes |
+| enabled | | off keeps the setting but applies nothing |
+
+**Save** writes the setting on the VM template, so every future instance
+carries it, and on the running instance, so it applies within one agent pass
+(15 s) instead of at the next start. Unticking every interface offers
+**Remove**, which takes it off both; the agent then removes its rules.
+
+It is stored as an annotation, YAML or JSON:
+
+```yaml
+spec:
+  template:
+    metadata:
+      annotations:
+        kubevirt-webgui/offsubnet-nat: |
+          - interface: lan
+            clients: [10.1.0.0/24, 10.2.0.0/24]
+            guestIP: 10.0.5.120
+            snatTo: 10.0.0.1
+            gatewayMAC: auto
+```
+
+### What the agent does
+
+`kubevirt-webgui netagent` runs as a DaemonSet on every node labelled
+`kubevirt.io/schedulable=true`. Every 15 seconds (`NETAGENT_INTERVAL`) it lists
+the VMIs on its node, and those live-migrating to it, that carry the
+annotation. For each, it finds the VM's QEMU process (`-name
+guest=<namespace>_<name>`) and, inside that process's network namespace:
+
+1. `iptables -t nat -A POSTROUTING -s <client> -d <guest>/32 -m comment
+   --comment kvw-offsubnet:<interface> -j SNAT --to-source <snatTo>` per
+   client range. KubeVirt's launcher pods set `bridge-nf-call-iptables`, so
+   bridged frames pass through netfilter.
+2. `ip neigh replace <snatTo> lladdr <gateway MAC> dev k6t-<id> nud permanent`
+   and `ip route replace <client> via <snatTo> dev k6t-<id> onlink proto 252`.
+   SNAT alone is not enough: when a reply's destination is translated back to
+   the client, br_netfilter routes it through the pod's table — out of `eth0`,
+   into the CNI. The route and pinned neighbour keep it on the bridge, headed
+   for the gateway.
+3. Removes any rule, route or neighbour of its own that is no longer wanted —
+   a range taken out, an interface switched off, the annotation removed. Its
+   rules are recognised by the comment and its routes by protocol 252, so it
+   never touches anything else.
+
+The bridge is found from the VMI's `status.interfaces[].podInterfaceName`
+(`pod<id>`, a dummy device): KubeVirt's bridge for it is `k6t-<id>`. Because
+the agent is a loop, not a boot hook, it repairs a rule someone deletes,
+follows a gateway whose MAC changes, and re-applies everything when the
+launcher pod is replaced. During a live migration the target node's agent
+applies the rules as soon as the target QEMU is running, so the guest is
+reachable when it lands; the source node's agent keeps the status until the
+migration completes.
+
+### Status, and Test
+
+The agent reports on the VMI as `kubevirt-webgui/offsubnet-nat-status` (JSON),
+and the panel shows it per interface:
+
+| State | Meaning |
+|---|---|
+| **Applied** | the rules are in place; the bridge, resolved gateway MAC and a count of translated connections are shown |
+| **Pending** | the QEMU process is not running on the node yet, or the guest's address is not known (no guest agent and no **Guest address**) |
+| **Failed** | with the reason: no bridged pod interface, no `k6t-` bridge, no ARP entry for the gateway, or a command that failed — `iptables` on a node whose kernel cannot load its NAT modules, for one |
+| **Disabled** | the interface's setting is switched off |
+
+With the setting saved and no status after a minute, the panel says the agent
+may not be installed.
+
+**Test** re-reads the agent's counter of translated connections and says
+whether new ones arrived since the last press. It cannot send traffic from a
+client range itself: nothing inside the cluster can, because the guest's
+replies go to the gateway and on to the real client, not back to the tester.
+Connect from a client in a range, then press **Test** again; the counter is
+refreshed about once a minute.
+
+### Limits
+
+- **IPv4 only.** IPv6 clients are left alone.
+- **The guest sees every translated client as one address** — `snatTo` — so
+  per-client logging in the guest is lost. The guest's own traffic to that
+  address shares conntrack with the translated connections; port remapping
+  keeps them apart.
+- **It depends on KubeVirt's launcher layout**: `bridge-nf-call-iptables` in
+  the pod and the `pod<id>`/`k6t-<id>` naming. A KubeVirt upgrade that changes
+  either shows up as **Failed** with what was not found.
+- **The agent is privileged** — host PID and network namespaces, `NET_ADMIN`,
+  `SYS_ADMIN` (setns), `SYS_PTRACE` (reading other users' `/proc/<pid>/ns`),
+  `NET_RAW` (the ARP-filling ping) — unlike the GUI, which holds no privileges
+  at all. That is why it is a separate, optional DaemonSet with RBAC limited
+  to reading VMIs and writing the one status annotation.
+- **A live migration drops connections briefly**, as it does without NAT.
 
 ## Services
 

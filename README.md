@@ -193,6 +193,8 @@ Only Kubernetes itself is assumed. Everything else is detected through API disco
 
 For atomic-usb specifically, the VM's USB panel offers to enable `devices.clientPassthrough`, which atomic-usb needs, and warns when the running instance predates it.
 
+One integration is this project's own and is installed separately: the **node agent** (`netagent.enabled=true`, or `deploy/netagent.yaml`), which keeps [off-subnet client NAT](docs/features/networking.md#off-subnet-client-nat) in bridged VMs' launcher pods — so a guest that only trusts its LAN answers clients from a VPN. Without it the setting is saved but nothing applies it, and the panel says so.
+
 ### Live migration and CPU models
 
 A VM started with the default `host-model` CPU can only migrate to a node with the **same host CPU**. The Migrate dialog marks nodes with a different host CPU and suggests models every node supports. A migration that cannot be placed reports the scheduler's reason in the task log within seconds; KubeVirt itself only fails it after five minutes. On a mixed cluster, give the VM a common CPU model — Hardware → Processors — the way you would pick a common CPU type in Proxmox.
@@ -350,6 +352,7 @@ The complete list, with defaults and the chart value that sets each one, is in
 - Console and upload tickets are random 256-bit values, single-use and short-lived, and carry the user's own client.
 - The browser stores an encrypted ticket, never the raw token; tickets expire (`AUTH_SESSION_TTL`) and renewal re-validates the token with the API server.
 - The Proxmox importer connects only to `PROXMOX_ALLOWED_HOSTS`, to the address it checked (no DNS rebinding in between), pins the SSH host key the person confirmed, and keeps credentials in memory only, bound to the person who entered them.
+- The optional node agent (`netagent`) is the one privileged component: host PID and network namespaces and `NET_ADMIN`/`SYS_ADMIN`/`SYS_PTRACE`/`NET_RAW`, to enter launcher pods' network namespaces. Its RBAC reads VMIs and patches one annotation on them; it is off unless installed.
 - Responses carry a strict Content-Security-Policy (`script-src 'self'`); runtime plugins must be served from the same origin (`GUI_PLUGIN_DIR`).
 
 ## License

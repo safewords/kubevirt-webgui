@@ -114,6 +114,10 @@ these are the ones most installs touch.
 | `plugins.urls` / `plugins.directory` | `[]` / `""` | `GUI_PLUGIN_URLS` / `GUI_PLUGIN_DIR` |
 | `proxmox.allowedHosts` | `[]` | `PROXMOX_ALLOWED_HOSTS` |
 | `extraEnv` | `[]` | anything else, including `RUST_LOG` |
+| `netagent.enabled` | `false` | installs the [off-subnet client NAT](features/networking.md#off-subnet-client-nat) node agent: a DaemonSet, its ServiceAccount and a ClusterRole reading VMIs |
+| `netagent.image.repository` / `.tag` | `ghcr.io/safewords/kubevirt-webgui-netagent` / chart `appVersion` | — |
+| `netagent.interval` | `15` | `NETAGENT_INTERVAL`, seconds between the agent's passes |
+| `netagent.nodeSelector` | `kubevirt.io/schedulable: "true"` | where it runs: the nodes that run VMs |
 
 A value the chart does **not** offer is a ClusterRoleBinding for its
 ServiceAccount. That is deliberate: the server does not act as itself, and
