@@ -141,6 +141,25 @@ fn vmi_state(vmi: &Option<Value>) -> String {
     }
 }
 
+/// The message of a VM's `Failure` condition, when it has one.
+fn vm_failure(vm: &Value) -> Option<String> {
+    condition(vm, "Failure", "True")
+}
+
+/// Why the scheduler cannot place a VMI's pod, when it cannot.
+fn unschedulable(vmi: &Value) -> Option<String> {
+    condition(vmi, "PodScheduled", "False")
+}
+
+fn condition(object: &Value, kind: &str, status: &str) -> Option<String> {
+    object.pointer("/status/conditions")?.as_array()?.iter().find_map(|c| {
+        (c["type"] == kind && c["status"] == status).then(|| {
+            let message = str_at(c, "/message");
+            if message.is_empty() { str_at(c, "/reason").to_string() } else { message.to_string() }
+        })
+    })
+}
+
 // --- power --------------------------------------------------------------------
 
 #[derive(Deserialize, Default)]
@@ -190,20 +209,57 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
 
         match action {
             "start" => {
-                kube.put(&vm_sub("start").path()?, Some(&json!({ "paused": options.paused }))).await?;
+                if let Err(e) = kube.put(&vm_sub("start").path()?, Some(&json!({ "paused": options.paused }))).await {
+                    // virt-api refuses a start while an earlier one is still
+                    // queued; the VM's Failure condition says why it is stuck.
+                    let pending = find(&kube, vm(ns, n)).await.ok().flatten().as_ref().and_then(vm_failure);
+                    return Err(match pending {
+                        Some(why) if e.message.contains("already underway") => RpcError::new(
+                            409,
+                            "Conflict",
+                            format!("an earlier start of {ns}/{n} is still pending, and cannot proceed: {why}"),
+                        ),
+                        _ => e.into(),
+                    });
+                }
                 if !wait {
                     return Ok(None);
                 }
+                let requested = Instant::now();
                 wait_until(
                     &task,
                     Duration::from_secs(600),
-                    || find(&kube, vmi(ns, n)),
-                    |vmi| match vmi.as_ref().map(|v| str_at(v, "/status/phase")) {
-                        Some("Running") => Some(Ok(Some("VM is running".into()))),
-                        Some("Failed") => Some(Err(RpcError::internal("the VMI failed to start"))),
-                        _ => None,
+                    || async {
+                        let instance = find(&kube, vmi(ns, n)).await?;
+                        let machine = find(&kube, vm(ns, n)).await?;
+                        Ok::<_, ApiError>(Some(json!({ "vmi": instance, "vm": machine })))
                     },
-                    vmi_state,
+                    |both| {
+                        let both = both.as_ref()?;
+                        match str_at(both, "/vmi/status/phase") {
+                            "Running" => return Some(Ok(Some("VM is running".into()))),
+                            "Failed" => return Some(Err(RpcError::internal("the VMI failed to start"))),
+                            _ => {}
+                        }
+                        // With no VMI yet, a Failure on the VM (a disk CDI will
+                        // not create, say) will not clear by waiting. One left
+                        // from before this start gets a reconcile to clear.
+                        if both["vmi"].is_null() && requested.elapsed() > Duration::from_secs(20) {
+                            return vm_failure(&both["vm"]).map(|why| Err(RpcError::internal(why)));
+                        }
+                        None
+                    },
+                    |both| match both {
+                        Some(both) => {
+                            let instance = (!both["vmi"].is_null()).then(|| both["vmi"].clone());
+                            let mut state = vmi_state(&instance);
+                            if let Some(why) = instance.as_ref().and_then(unschedulable) {
+                                state.push_str(&format!(" — not schedulable: {why}"));
+                            }
+                            state
+                        }
+                        None => String::new(),
+                    },
                 )
                 .await
             }
