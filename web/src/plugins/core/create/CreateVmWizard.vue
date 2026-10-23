@@ -194,6 +194,8 @@ const errors = computed<Record<StepId, string[]>>(() => {
 
   if (model.useInstancetype && !model.instancetype) e.cpu.push('Choose an instance type')
   if (!model.useInstancetype && [model.sockets, model.cores, model.threads].some((n) => !Number.isInteger(n) || n < 1)) e.cpu.push('Sockets, cores and threads must be whole numbers of at least 1')
+  const cpuTrouble = model.useInstancetype ? null : cpuModels.unrunnable(model.cpuModel)
+  if (cpuTrouble) e.cpu.push(cpuTrouble)
 
   if (!model.useInstancetype && !(model.memoryMib >= 128)) e.memory.push('Memory must be at least 128 MiB')
   if (model.memoryRequestMib !== null && model.memoryRequestMib > model.memoryMib) e.memory.push('The request cannot exceed the guest memory')
@@ -510,7 +512,7 @@ const summary = computed(() => {
               <FormRow label="Cores"><input v-model.number="model.cores" type="number" min="1" class="input" /></FormRow>
               <FormRow label="Threads"><input v-model.number="model.threads" type="number" min="1" class="input" /></FormRow>
               <FormRow label="Total">{{ model.sockets * model.cores * model.threads }} vCPU</FormRow>
-              <FormRow label="Type" hint="host-model keeps VMs migratable between similar nodes; host-passthrough is fastest but pins to identical CPUs.">
+              <FormRow label="Type" :error="cpuModels.unrunnable(model.cpuModel)" hint="host-model keeps VMs migratable between similar nodes; host-passthrough is fastest but pins to identical CPUs.">
                 <input v-model.trim="model.cpuModel" class="input" list="kve-cpu-models" />
                 <datalist id="kve-cpu-models">
                   <option value="host-model" />

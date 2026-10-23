@@ -178,7 +178,12 @@ const step = ref<StepId>('connect')
 const stepIndex = computed(() => steps.findIndex((s) => s.id === step.value))
 const reachable = (id: StepId) => (id === 'connect' ? true : id === 'vm' ? !!session.value : !!model.value)
 
-const issues = computed(() => (detail.value && model.value ? problems(detail.value, model.value) : { settings: [], disks: [], network: [] }))
+const issues = computed(() => {
+  if (!detail.value || !model.value) return { settings: [], disks: [], network: [] }
+  const found = problems(detail.value, model.value)
+  const cpuTrouble = cpuModels.unrunnable(model.value.cpuModel)
+  return cpuTrouble ? { ...found, settings: [...found.settings, cpuTrouble] } : found
+})
 const invalid = computed(() => (['settings', 'disks', 'network'] as const).filter((id) => issues.value[id].length))
 const notes = computed(() => (detail.value && model.value ? warnings(detail.value, model.value) : []))
 const built = computed(() => (detail.value && model.value ? buildImport(detail.value, model.value) : null))
@@ -388,7 +393,7 @@ async function submit() {
             <FormRow label="Description"><textarea v-model="model.description" class="input h-16 resize-y" /></FormRow>
             <FormRow label="Sockets"><input v-model.number="model.sockets" type="number" min="1" class="input w-28" /></FormRow>
             <FormRow label="Cores"><input v-model.number="model.cores" type="number" min="1" class="input w-28" /></FormRow>
-            <FormRow label="CPU type" :hint="`Proxmox: ${detail.config.cpuType}${detail.config.cpuFlags ? ` (${detail.config.cpuFlags})` : ''}. A model every node supports keeps the VM live-migratable.`">
+            <FormRow label="CPU type" :error="cpuModels.unrunnable(model.cpuModel)" :hint="`Proxmox: ${detail.config.cpuType}${detail.config.cpuFlags ? ` (${detail.config.cpuFlags})` : ''}. A model every node supports keeps the VM live-migratable.`">
               <input v-model.trim="model.cpuModel" class="input" list="kve-import-cpu-models" />
               <datalist id="kve-import-cpu-models">
                 <option value="host-model" />

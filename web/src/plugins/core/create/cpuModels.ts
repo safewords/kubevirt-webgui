@@ -47,5 +47,27 @@ export function useCpuModels() {
     return shared.sort((a, b) => rank(b) - rank(a) || a.localeCompare(b))
   })
 
-  return { hostModels, mixed, common }
+  /** Named model → the VM-capable nodes that can run it. */
+  const runnableOn = computed(() => {
+    const map = new Map<string, string[]>()
+    for (const n of nodes.value) for (const m of labelled(n, MODEL)) map.set(m, [...(map.get(m) ?? []), n.metadata.name])
+    return map
+  })
+
+  /**
+   * Why no node can run `model`, or null when one can (or it is host-model,
+   * host-passthrough or unset). The host model's name is a trap: a node whose
+   * host CPU is `EPYC-Rome` may only be able to run the named `EPYC-Rome-v4`,
+   * and a VM asking for `EPYC-Rome` then never schedules.
+   */
+  function unrunnable(model: string): string | null {
+    if (!model || model === 'host-model' || model === 'host-passthrough' || !nodes.value.length) return null
+    if (runnableOn.value.has(model)) return null
+    const versions = [...runnableOn.value.keys()].filter((m) => m.replace(/-v\d+$/, '') === model.replace(/-v\d+$/, '')).sort()
+    return versions.length
+      ? `No node can run the CPU model ${model}; ${versions.join(', ')} ${versions.length > 1 ? 'are' : 'is'} available`
+      : `No node can run the CPU model ${model}`
+  }
+
+  return { hostModels, mixed, common, runnableOn, unrunnable }
 }
