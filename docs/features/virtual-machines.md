@@ -459,7 +459,12 @@ arrow opens the others.
 Each is the gateway method `vm.<action>` — `vm.start`, `vm.shutdown`,
 `vm.stop`, `vm.reboot`, `vm.restart`, `vm.reset`, `vm.pause`, `vm.resume` —
 and each runs as a task that logs the VMI's phase and node as they change, so
-a VM that will not start says where it got stuck. **Shutdown**, **Stop**,
+a VM that will not start says where it got stuck. **Start** says why outright
+where it can: a launcher pod the scheduler cannot place logs the scheduler's
+reason; a VM whose instance cannot even be created (a disk CDI refuses to make,
+say) fails with the VM's `Failure` condition instead of waiting out the 600 s;
+and a start refused because an earlier one is still queued — KubeVirt's *stop/start
+already underway* — names what that earlier start is stuck on. **Shutdown**, **Stop**,
 **Reboot**, **Restart** and **Reset** ask for confirmation first; **Stop** and
 **Reset** are marked as dangerous.
 

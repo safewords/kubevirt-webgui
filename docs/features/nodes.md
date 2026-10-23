@@ -312,6 +312,11 @@ present the same CPU the guest already sees. In practice:
 - A VM that names a model explicitly can go to any node advertising that model
   under `cpu-model.node.kubevirt.io/`, which is what naming an older baseline
   model buys: a smaller CPU in exchange for the whole cluster as a target.
+  The host model's name is not necessarily one of them: a node whose
+  `host-model-cpu.node.kubevirt.io/` is `EPYC-Rome` may list only
+  `EPYC-Rome-v4`, and a VM asking for `EPYC-Rome` then never schedules. The
+  create wizard and the Proxmox importer refuse a named model no ready node
+  lists, and say which versions of it are available.
 - A VM using `host-passthrough` sees the host CPU exactly and is generally not
   live-migratable at all. It shows as such in [Guests](#guests) and drain
   leaves it where it is.

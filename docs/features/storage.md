@@ -66,6 +66,17 @@ may create namespaces. Images are deliberately kept in one namespace and
 cloned from there, so a VM in another namespace gets its own copy and the
 library can be tidied without touching VMs built from it.
 
+CDI only clones across namespaces when the *target* namespace's ServiceAccount
+may `create datavolumes/source` in the source namespace, and a VM's disks are
+cloned on behalf of its namespace's `default` ServiceAccount. Without that a VM
+is created, its disks never appear, and every start is refused with *stop/start
+already underway*. So creating a VM or disk that clones from another namespace
+first grants it, as you: a Role `kubevirt-webgui-clone-source` in the source
+namespace that allows only that verb, and a RoleBinding
+`kubevirt-webgui-clone-to-<namespace>` for the target's `default`
+ServiceAccount and its ServiceAccounts group. If you may not create them, the
+task log says so and names the permission an administrator would grant.
+
 | Button | What it does |
 |---|---|
 | **Download from URL** | a DataVolume with an `http` source. CDI fetches it inside the cluster; nothing passes through your browser. |
@@ -181,7 +192,7 @@ The sources are:
 | **Empty disk** | `source: { blank: {} }` | zeroed, ready to partition |
 | **Import from a URL** | `source: { http: { url } }` | qcow2, raw, VMDK, VHD/VHDX, ISO; xz/gz |
 | **Import from a container registry** | `source: { registry: { url } }` | a container disk — an image with the disk under `/disk`. `docker://` is added if you leave it off |
-| **Clone an existing disk** | `source: { pvc: { namespace, name } }` | cloning across namespaces needs permission to clone from the source |
+| **Clone an existing disk** | `source: { pvc: { namespace, name } }` | cloning across namespaces is granted first — see [Images](#images) |
 | **Upload a file from this computer** | `source: { upload: {} }` | takes the socket route above |
 
 Every one of them can also be labelled for the image library from the same
