@@ -1,0 +1,20 @@
+{{- if not .Values.settings.requireAuth }}
+# Open access (settings.requireAuth=false): nobody signs in, and every visitor
+# acts as the server's ServiceAccount — so that ServiceAccount is what decides
+# what they may do. This binding is the one exception to "bound to nothing",
+# and it exists only while open access is on.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kubevirt-webgui.fullname" . }}-open-access
+  labels:
+    {{- include "kubevirt-webgui.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ required "settings.openAccessRole is required when settings.requireAuth is false" .Values.settings.openAccessRole }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kubevirt-webgui.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

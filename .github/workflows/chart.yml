@@ -34,6 +34,7 @@ jobs:
           helm template kubevirt-webgui charts/kubevirt-webgui --namespace kubevirt-webgui \
             --set ingress.enabled=true,service.type=LoadBalancer,serviceAccount.create=false \
             --set appKey.generate=false,appKey.existingSecret=my-key \
+            --set settings.requireAuth=false \
             --set-json 'proxmox.allowedHosts=["10.0.0.0/24","pve.example.com"]' \
             --set-json 'settings.allowedOrigins=["https://virt.example.com"]' > rendered-alt.yaml
           curl -fsSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar -xz kubeconform
@@ -42,7 +43,7 @@ jobs:
         run: |
           # deploy/kubevirt-webgui.yaml is the copy-paste install. It and the
           # chart drifting apart is how one of them quietly becomes wrong.
-          for needle in 'AUTH_ALLOW_SERVER_IDENTITY' 'APP_KEY' '/healthz' 'readOnlyRootFilesystem'; do
+          for needle in 'AUTH_ALLOW_SERVER_IDENTITY' 'AUTH_REQUIRED' 'APP_KEY' '/healthz' 'readOnlyRootFilesystem'; do
             grep -q "$needle" rendered.yaml || { echo "chart lost: $needle"; exit 1; }
             grep -q "$needle" deploy/kubevirt-webgui.yaml || { echo "deploy manifest lost: $needle"; exit 1; }
           done

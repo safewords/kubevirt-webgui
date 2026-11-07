@@ -19,6 +19,13 @@ is exactly what your RBAC allows, and nothing an install can widen.
 
   kubectl -n {{ .Release.Namespace }} create token <serviceaccount>   # one way to get a token
 
+{{ if not .Values.settings.requireAuth -}}
+!! OPEN ACCESS (settings.requireAuth=false). Nobody signs in: anything that can
+!! reach this page acts as {{ .Values.settings.openAccessRole }}, cluster-wide.
+!! Keep it on a trusted local network only. To require sign-in again:
+!!   --set settings.requireAuth=true
+{{ end -}}
+
 {{ if .Values.settings.allowServerIdentity -}}
 !! AUTH_ALLOW_SERVER_IDENTITY is ON. Anybody who can open this page can act as
 !! the server's ServiceAccount, without signing in. That is meant for a

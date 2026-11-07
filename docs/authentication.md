@@ -88,6 +88,53 @@ A person bound only in `team-a` sees `team-a`. The tree, the panels and the
 create menu are built from what the cluster says they may see, so a limited
 user gets a smaller GUI rather than a full one that errors.
 
+## Requiring sign-in, or open access
+
+`AUTH_REQUIRED` (chart: `settings.requireAuth`) picks one of two deployments.
+
+### `true` (the default): sign-in required
+
+Everyone signs in with their own credential, and the page itself is not public
+either — not the application, its assets and plugins, nor the gateway's `hello`
+frame (which names the cluster's API URL, the extensions and the plugin URLs):
+
+- Every request without a valid session cookie gets a small, script-free
+  sign-in page (or `401` for anything that is not a page). `/ws`,
+  `/ws/console/…` and `/ws/upload/…` refuse to open. `/healthz` stays open for
+  the kubelet.
+- The page posts a token to `POST /auth/login`, which checks it with the API
+  server exactly as `auth.login` does, then sets `kve_session` and sends the
+  browser where it was going.
+- The cookie's value is the same sealed ticket the gateway uses, so there is
+  still no session store; it is `HttpOnly`, `SameSite=Strict`, lives as long as
+  `AUTH_SESSION_TTL`, and is `Secure` when the request arrived over HTTPS
+  (`X-Forwarded-Proto: https`, as an ingress sets it).
+- The browser app resumes its gateway session from the cookie
+  (`GET /auth/ticket`, same-origin only) instead of asking for the token again,
+  hands each renewed ticket back (`POST /auth/session`) so the cookie keeps
+  pace, and clears it on sign-out (`POST /auth/logout`).
+- The gate's `POST`s check the origin as the sockets do, on top of
+  `SameSite=Strict`.
+
+Server-identity sign-in is not offered on the gate's page: the point is that
+nobody gets in without a credential.
+
+### `false`: open access
+
+Nobody signs in. Every visitor acts as the server's own identity — the browser
+app signs in as the server by itself, and there is no sign-in screen and no
+"Sign out". The chart then binds the ServiceAccount to `settings.openAccessRole`
+(default `cluster-admin`) cluster-wide; with the plain manifests, bind it
+yourself:
+
+    kubectl create clusterrolebinding kubevirt-webgui-open-access \
+      --clusterrole=cluster-admin --serviceaccount=kubevirt-webgui:kubevirt-webgui
+
+**Anything that can reach the page gets that role.** This is for a GUI on a
+trusted local network — a homelab LoadBalancer address, say — and never for one
+behind an ingress or tunnel the internet can reach. Token sign-in still works in
+this mode, for anyone who wants to act as themselves.
+
 ## Signing in as the server
 
 `AUTH_ALLOW_SERVER_IDENTITY=true` adds a second button: sign in as the

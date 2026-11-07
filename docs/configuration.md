@@ -54,6 +54,7 @@ from its own environment. Credentials come from whoever signed in.
 | Variable | Default | What it does |
 |---|---|---|
 | `AUTH_ALLOW_SERVER_IDENTITY` | `false` | Offers "sign in as the server identity". **Anybody who can open the page then acts as the pod's ServiceAccount.** For single-user desktop installs only. |
+| `AUTH_REQUIRED` | `true` | `true`: everyone signs in with their own token, and nothing — the application, its assets, `/plugins/`, the sockets — is served until they have; visitors without a session get a small sign-in page. `false`: **open access** — nobody signs in, every visitor acts as the server's identity (which then needs a role binding). `/healthz` is always open. See [authentication.md](authentication.md#requiring-sign-in-or-open-access). |
 | `AUTH_SESSION_TTL` | `28800` (8 h) | Session lifetime in seconds, minimum 300. The sealed credential expires with it. |
 | `CONSOLE_TICKET_TTL` | `60` | Seconds a console or upload ticket may be redeemed for, minimum 5. Tickets travel in a URL, so they are short-lived and single-use. |
 

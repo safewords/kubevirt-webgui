@@ -31,6 +31,51 @@ function writeTicket(ticket: StoredTicket | null) {
   }
 }
 
+/**
+ * With `AUTH_REQUIRED` the server serves nothing until a session cookie is set
+ * by its own sign-in page. That cookie holds the same ticket the gateway uses,
+ * so: resume from it instead of asking for the token again, hand every new
+ * ticket back so the cookie lasts as long as the session, and clear it on
+ * sign-out. Without the gate none of this runs.
+ */
+const gate = {
+  up: () => gateway.hello.value?.auth.required === true,
+  async ticket(): Promise<StoredTicket | null> {
+    try {
+      const response = await fetch('/auth/ticket', { credentials: 'same-origin', cache: 'no-store' })
+      if (!response.ok) return null
+      const body = (await response.json()) as StoredTicket
+      return body.ticket ? body : null
+    } catch {
+      return null
+    }
+  },
+  async keep(ticket: string) {
+    try {
+      await fetch('/auth/session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticket }),
+      })
+    } catch {
+      /* the cookie runs out on its own; the next page load asks again */
+    }
+  },
+  async leave() {
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    } catch {
+      /* a stale cookie is refused anyway once the ticket expires */
+    }
+    // The gate's own sign-in page, not this app's: nothing loads without it.
+    window.location.assign('/')
+  },
+}
+
+/** `AUTH_REQUIRED=false`: the server lets everyone in as its own identity. */
+const openAccess = () => gateway.hello.value?.auth.open === true
+
 export const useSession = defineStore('session', () => {
   const status = ref<'starting' | 'anonymous' | 'authenticated'>('starting')
   const user = ref<UserInfo | null>(null)
@@ -43,6 +88,7 @@ export const useSession = defineStore('session', () => {
   function remember(ticket: string, expiresAt: number) {
     memoryTicket = { ticket, expires: expiresAt }
     writeTicket(memoryTicket)
+    if (gate.up()) void gate.keep(ticket)
   }
 
   function adopt(result: { user: UserInfo; expires: number; ticket?: string }) {
@@ -70,7 +116,19 @@ export const useSession = defineStore('session', () => {
 
   /** Called by the gateway after every (re)connection. */
   async function resume() {
-    const stored = memoryTicket ?? readTicket()
+    const stored = memoryTicket ?? readTicket() ?? (gate.up() ? await gate.ticket() : null)
+    if (!stored && openAccess()) {
+      // Open access: nobody signs in; everyone is the server's identity.
+      // `immediate`: this runs inside the gateway's onOpen, before queued calls
+      // are flushed — a queued call would wait for itself until it timed out.
+      try {
+        adopt(await gateway.call('auth.login', { method: 'server' }, { immediate: true, timeout: 15000 }))
+      } catch (e: any) {
+        lastError.value = e?.message ?? String(e)
+        status.value = 'anonymous'
+      }
+      return
+    }
     if (!stored) {
       if (status.value !== 'anonymous') status.value = 'anonymous'
       return
@@ -112,14 +170,20 @@ export const useSession = defineStore('session', () => {
     user.value = null
     status.value = 'anonymous'
     if (renewTimer) clearInterval(renewTimer)
+    if (gate.up()) await gate.leave()
   }
 
   function expired() {
     memoryTicket = null
     writeTicket(null)
+    if (openAccess()) {
+      void resume() // just sign in again: there is nobody to ask
+      return
+    }
     user.value = null
     lastError.value = 'Your session has expired. Please sign in again.'
     status.value = 'anonymous'
+    if (gate.up()) void gate.leave()
   }
 
   const displayName = computed(() => {
@@ -128,5 +192,7 @@ export const useSession = defineStore('session', () => {
     return sa ? `${sa[2]}@${sa[1]}` : name
   })
 
-  return { status, user, expires, hello, lastError, displayName, resume, login, loginAsServer, logout, expired }
+  const open = computed(() => hello.value?.auth.open === true)
+
+  return { status, user, expires, hello, lastError, displayName, open, resume, login, loginAsServer, logout, expired }
 })

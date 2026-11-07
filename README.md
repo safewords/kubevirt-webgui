@@ -337,6 +337,7 @@ them. The ones worth knowing before the first run:
 |---|---|---|
 | `APP_KEY` | random per boot | seals sign-in tickets; set it so sessions survive restarts |
 | `AUTH_ALLOW_SERVER_IDENTITY` | `false` | offer signing in as the server's own identity — single-user installs only |
+| `AUTH_REQUIRED` | `true` | `true`: sign-in required before anything is served; `false`: open access, every visitor is the server's identity — trusted LAN only |
 | `KUBE_CONTEXT` | in-cluster, then current context | which cluster to manage |
 | `GUI_ALLOWED_ORIGINS` | same host | origins allowed to open sockets, when the public hostname differs |
 | `PROXMOX_ALLOWED_HOSTS` | — (import off) | Proxmox VE hosts the importer may reach |

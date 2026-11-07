@@ -28,7 +28,12 @@ export interface ExtensionManifest {
 
 export interface Hello {
   server: { name: string; version: string; product: string; cluster: string }
-  auth: { methods: string[] }
+  /**
+   * `required`: the server's sign-in gate (`AUTH_REQUIRED`) is up.
+   * `open`: open access (`AUTH_REQUIRED=false`) — sign in as the server, no screen.
+   * See `stores/session.ts`.
+   */
+  auth: { methods: string[]; required?: boolean; open?: boolean }
   extensions: ExtensionManifest[]
   pluginUrls: string[]
 }
