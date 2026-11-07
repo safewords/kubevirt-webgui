@@ -110,7 +110,7 @@ impl ConsoleProxy {
 #[async_trait::async_trait]
 impl WebSocketHandler for ConsoleProxy {
     fn authorize(&self, request: &Request) -> bool {
-        super::origin_allowed(&self.state, request)
+        super::origin_allowed(&self.state, request) && crate::gate::admits(&self.state, request)
     }
 
     async fn on_connect(&self, socket: &Socket) -> RainierResult<()> {

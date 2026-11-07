@@ -17,6 +17,14 @@ pub struct Settings {
     /// Allow signing in as the server's own kubeconfig identity. Intended for
     /// a single-user desktop install; never enable it on a shared deployment.
     pub allow_server_identity: bool,
+    /// `true` (the default): everyone signs in with their own credential, and
+    /// nothing — the application, its assets, plugins, the sockets — is served
+    /// until they have (see `gate`). `/healthz` stays open.
+    ///
+    /// `false`: **open access**. Nobody signs in; every visitor acts as the
+    /// server's own identity, which the deployment binds to an admin role. For
+    /// a GUI reachable only from a trusted local network.
+    pub require_auth: bool,
     /// How long a sign-in lasts before the browser must renew it.
     pub session_ttl: Duration,
     /// How long a console ticket may wait to be redeemed.
@@ -54,6 +62,7 @@ impl Settings {
             kube_context: optional(env, "KUBE_CONTEXT"),
             kube_api_server: optional(env, "KUBE_API_SERVER"),
             allow_server_identity: env.bool("AUTH_ALLOW_SERVER_IDENTITY", false),
+            require_auth: env.bool("AUTH_REQUIRED", true),
             session_ttl: Duration::from_secs(env.int("AUTH_SESSION_TTL", 8 * 3600).max(300) as u64),
             console_ticket_ttl: Duration::from_secs(env.int("CONSOLE_TICKET_TTL", 60).max(5) as u64),
             allowed_origins: list(env, "GUI_ALLOWED_ORIGINS"),

@@ -10,6 +10,7 @@ pub mod auth;
 pub mod bootstrap;
 pub mod cluster;
 pub mod extensions;
+pub mod gate;
 pub mod gateway;
 pub mod metrics;
 pub mod netagent;

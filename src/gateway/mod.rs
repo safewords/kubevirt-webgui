@@ -79,7 +79,7 @@ fn error_frame(id: &Option<String>, error: &RpcError) -> Value {
 #[async_trait::async_trait]
 impl WebSocketHandler for Gateway {
     fn authorize(&self, request: &Request) -> bool {
-        origin_allowed(&self.state, request)
+        origin_allowed(&self.state, request) && crate::gate::admits(&self.state, request)
     }
 
     async fn on_connect(&self, socket: &Socket) -> RainierResult<()> {
@@ -96,6 +96,11 @@ impl WebSocketHandler for Gateway {
             },
             "auth": {
                 "methods": if self.state.auth.allows_server_identity() { vec!["token", "server"] } else { vec!["token"] },
+                // The gate is up: the browser app resumes from the gate's cookie
+                // (`/auth/ticket`) and keeps that cookie in step with renewals.
+                "required": self.state.settings.require_auth,
+                // Open access: the browser app signs in as the server by itself.
+                "open": !self.state.settings.require_auth,
             },
             "extensions": self.state.registry.manifests(),
             "pluginUrls": self.state.settings.plugin_urls.iter().cloned().chain(crate::spa::discovered_plugins()).collect::<Vec<_>>(),

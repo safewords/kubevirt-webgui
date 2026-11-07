@@ -460,7 +460,7 @@ async fn finish(socket: &Socket, active: &mut Active) {
 #[async_trait::async_trait]
 impl WebSocketHandler for UploadProxy {
     fn authorize(&self, request: &HttpRequest) -> bool {
-        super::origin_allowed(&self.state, request)
+        super::origin_allowed(&self.state, request) && crate::gate::admits(&self.state, request)
     }
 
     async fn on_connect(&self, socket: &Socket) -> RainierResult<()> {

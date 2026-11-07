@@ -29,7 +29,9 @@ const createMenu = computed<MenuItem[]>(() => {
   return [...primary, ...rest].map((c, index) => ({ id: c.id, title: c.title, icon: c.icon, divider: index === primary.length && primary.length > 0, run: () => c.run() }))
 })
 
-const userMenu = computed<MenuItem[]>(() => [
+const userMenu = computed<MenuItem[]>(() => allMenu.value.filter((item) => item.id !== 'logout' || !session.open))
+
+const allMenu = computed<MenuItem[]>(() => [
   { id: 'theme-dark', title: 'Dark theme', icon: faMoon, hint: ui.theme === 'dark' ? '✓' : '', run: () => (ui.theme = 'dark') },
   { id: 'theme-light', title: 'Light theme', icon: faSun, hint: ui.theme === 'light' ? '✓' : '', run: () => (ui.theme = 'light') },
   { id: 'theme-system', title: 'System theme', icon: faCircleHalfStroke, hint: ui.theme === 'system' ? '✓' : '', run: () => (ui.theme = 'system') },

@@ -11,7 +11,8 @@ const session = useSession()
 const router = useRouter()
 const route = useRoute()
 
-const realm = ref<'token' | 'server'>('token')
+// Open access signs in as the server by itself; this screen only shows if that failed.
+const realm = ref<'token' | 'server'>(session.hello?.auth.open ? 'server' : 'token')
 const token = ref('')
 const show = ref(false)
 const busy = ref(false)

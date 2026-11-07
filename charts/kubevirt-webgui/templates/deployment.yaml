@@ -56,6 +56,8 @@ spec:
               value: {{ .Values.settings.productName | quote }}
             - name: AUTH_ALLOW_SERVER_IDENTITY
               value: {{ .Values.settings.allowServerIdentity | quote }}
+            - name: AUTH_REQUIRED
+              value: {{ .Values.settings.requireAuth | quote }}
             - name: AUTH_SESSION_TTL
               value: {{ .Values.settings.sessionTtl | quote }}
             - name: CONSOLE_TICKET_TTL

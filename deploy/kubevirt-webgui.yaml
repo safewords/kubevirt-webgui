@@ -70,6 +70,12 @@ spec:
                   key: APP_KEY
             - name: AUTH_ALLOW_SERVER_IDENTITY
               value: "false"
+            # "true": everyone signs in with their own token, and nothing is
+            # served before they have. "false" is open access — every visitor
+            # is the server's identity — and needs a ClusterRoleBinding for
+            # this ServiceAccount; see docs/authentication.md.
+            - name: AUTH_REQUIRED
+              value: "true"
             - name: GUI_PRODUCT_NAME
               value: kubevirt-webgui
             # Proxmox VE hosts the importer may SSH to; remove to switch importing off.

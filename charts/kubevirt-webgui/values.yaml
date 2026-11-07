@@ -51,6 +51,19 @@ settings:
   # server's identity *is* the user's.
   allowServerIdentity: false
 
+  # true (the default): everyone signs in with their own Kubernetes token, and
+  # nothing — the application, its assets, plugins, the sockets — is served
+  # until they have. /healthz stays open for the probes. Behind an HTTPS
+  # ingress the session cookie is marked Secure.
+  #
+  # false: OPEN ACCESS. Nobody signs in: every visitor acts as this chart's
+  # ServiceAccount, which is then bound to `openAccessRole` cluster-wide. Only
+  # for a GUI that nothing but a trusted local network can reach — anything that
+  # can open the page gets that role.
+  requireAuth: true
+  # The ClusterRole every visitor gets when requireAuth is false.
+  openAccessRole: cluster-admin
+
   # How long a sign-in lasts, in seconds (minimum 300).
   sessionTtl: 28800
   # How long a console or upload ticket may be redeemed for, in seconds. Short

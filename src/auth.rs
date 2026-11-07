@@ -83,14 +83,16 @@ impl Auth {
             .ok_or_else(|| ApiError::new(503, "ServiceUnavailable", "the server is still starting"))
     }
 
-    /// Whether signing in as the server's own identity is offered.
+    /// Whether signing in as the server's own identity is offered: on request
+    /// (`AUTH_ALLOW_SERVER_IDENTITY`), and always in open access
+    /// (`AUTH_REQUIRED=false`), where it is how every visitor gets in.
     pub fn allows_server_identity(&self) -> bool {
-        self.settings.allow_server_identity
+        self.settings.allow_server_identity || !self.settings.require_auth
     }
 
     /// Sign in with a credential, returning the ticket and the session.
     pub async fn login(&self, credential: Credential) -> Result<(String, Arc<Session>), ApiError> {
-        if matches!(credential, Credential::Server) && !self.settings.allow_server_identity {
+        if matches!(credential, Credential::Server) && !self.allows_server_identity() {
             return Err(ApiError::new(403, "Forbidden", "signing in with the server's identity is disabled"));
         }
         if let Credential::Token { token } = &credential
@@ -126,7 +128,7 @@ impl Auth {
         if chrono::Utc::now().timestamp() >= claims.expires {
             return Err(ApiError::new(401, "Unauthorized", "the session has expired; sign in again"));
         }
-        if matches!(claims.credential, Credential::Server) && !self.settings.allow_server_identity {
+        if matches!(claims.credential, Credential::Server) && !self.allows_server_identity() {
             return Err(ApiError::new(401, "Unauthorized", "server identity sign-in has been disabled"));
         }
 
