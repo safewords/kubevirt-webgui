@@ -462,7 +462,7 @@ arrow opens the others.
 
 | Action | What it does | KubeVirt subresource | Offered when |
 |---|---|---|---|
-| **Start** | Starts the VM and follows it until the VMI reports `Running`, for up to 600 s | `virtualmachines/start` | state is `stopped`, `error` or `unknown`, and no unfinished instance exists |
+| **Start** | Starts the VM and follows it until the VMI reports `Running`, for up to 600 s | `virtualmachines/start` | state is `stopped`, `error` or `unknown`, and no unfinished instance exists — or the only one never reached a node, which Start discards (after asking) and replaces with one made from the current settings |
 | **Shutdown** | Asks the guest to power off (ACPI) and lets it use its grace period; follows it for up to 900 s | `virtualmachines/stop` | `running`, `paused` or `migrating` |
 | **Stop** | Sends `gracePeriod: 0` — like pulling the power cable; unsaved data in the guest is lost | `virtualmachines/stop` | `running`, `paused`, `migrating`, `starting` or `stopping`, or `error`/`unknown` with an unfinished instance (a start stuck unschedulable) |
 | **Reboot** | Soft reboot from inside the guest; keeps the same instance | `virtualmachineinstances/softreboot` | `running` |
@@ -483,7 +483,11 @@ already underway* — names what that earlier start is stuck on; and a start ref
 because an instance already exists — KubeVirt's *VM is already running*, which it
 also says of an instance the scheduler never placed — explains that the VM is
 started but unplaced, spells out each of the scheduler's reasons with a remedy,
-and points at **Stop**. The **Summary** panel shows the same explanation while
+and points at **Stop**. An instance that never reached a node ran no guest, and
+KubeVirt does not replace it when the VM's settings change (it only sets
+`RestartRequired`), so **Start** on such a VM deletes it and starts again — the
+controller makes the new instance itself under run strategy `Always`, and the
+start request does it otherwise. The **Summary** panel shows the same explanation while
 the instance waits. **Shutdown**, **Stop**,
 **Reboot**, **Restart** and **Reset** ask for confirmation first; **Stop** and
 **Reset** are marked as dangerous.

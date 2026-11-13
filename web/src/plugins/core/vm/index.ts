@@ -29,6 +29,12 @@ const isRunning = (ctx: ObjectContext) => ['running', 'paused', 'migrating'].inc
 // pull failures) is a start that is stuck, not a VM that is down: KubeVirt
 // refuses another start, and the way out is to stop it.
 const stuckStarting = (ctx: ObjectContext) => ['error', 'unknown'].includes(state(ctx)) && liveInstance(ctx.related.vmi)
+// A stuck start whose instance never reached a node ran no guest. Start then
+// discards it and tries again with the current settings (the server does it).
+const unplaced = (ctx: ObjectContext) => {
+  const vmi = ctx.related.vmi
+  return stuckStarting(ctx) && !vmi?.status?.nodeName && ['', 'Pending', 'Scheduling'].includes(vmi?.status?.phase ?? '')
+}
 const subresource = (ctx: ObjectContext, resource: 'virtualmachines' | 'virtualmachineinstances', sub: string) => ({
   verb: 'update',
   group: 'subresources.kubevirt.io',
@@ -65,9 +71,14 @@ export function setupVm(api: PluginApi) {
     icon: faPlay,
     group: 'primary',
     order: 10,
-    enabled: (ctx) => !!ctx.object && ['stopped', 'error', 'unknown'].includes(state(ctx)) && !stuckStarting(ctx),
+    enabled: (ctx) => !!ctx.object && ['stopped', 'error', 'unknown'].includes(state(ctx)) && (!stuckStarting(ctx) || unplaced(ctx)),
     access: (ctx) => subresource(ctx, 'virtualmachines', 'start'),
-    run: (ctx) => power(ctx, 'start', 'Start'),
+    run: (ctx) =>
+      unplaced(ctx)
+        ? power(ctx, 'start', 'Start', {
+            ask: `${ctx.namespace}/${ctx.name} has a start pending that never reached a node, so no guest ran. Discard it and start again with the current settings? If the cause is not fixed, the new attempt waits the same way.`,
+          })
+        : power(ctx, 'start', 'Start'),
   })
 
   api.action({

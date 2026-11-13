@@ -181,7 +181,7 @@ const hints = computed(() => (unschedulable.value ? schedulingHints(unschedulabl
         <li v-for="(h, i) in hints" :key="i">{{ h.problem }} <span class="text-fg-muted">Remedy: {{ h.remedy }}</span></li>
       </ul>
       <p class="mt-1.5 text-xs text-fg-muted">
-        Start is unavailable while this attempt is pending — KubeVirt answers “already running”. Fix the cause and it starts by itself, or Stop to cancel the attempt.
+        KubeVirt treats this attempt as “already running” and does not pick up changed settings by itself. After fixing the cause — less memory, a wider placement — press Start: it discards this attempt and starts again with the current settings. Stop cancels it instead.
         Scheduler: <span class="mono">{{ unschedulable }}</span>
       </p>
     </Notice>

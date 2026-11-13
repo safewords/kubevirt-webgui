@@ -161,6 +161,11 @@ fn live_instance(vmi: &Value) -> bool {
     !matches!(str_at(vmi, "/status/phase"), "Succeeded" | "Failed")
 }
 
+/// An instance the scheduler never placed: no node, so no guest ever ran.
+fn never_placed(vmi: &Value) -> bool {
+    str_at(vmi, "/status/nodeName").is_empty() && matches!(str_at(vmi, "/status/phase"), "" | "Pending" | "Scheduling")
+}
+
 /// Why a start is refused because an instance already exists, with the
 /// remedy — the scheduler's reasons spelled out when that is what holds it.
 fn already_started(ns: &str, name: &str, vmi: &Value) -> String {
@@ -289,10 +294,51 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                 // KubeVirt answers "VM is already running" to a start while an
                 // instance exists, even one whose pod was never placed. Say
                 // what is really going on, and what to do, instead.
+                //
+                // An instance that never reached a node never ran a guest, and
+                // KubeVirt does not replace it when the VM's settings change
+                // (it only sets RestartRequired). Starting again means the
+                // user wants another attempt, with the settings as they are
+                // now: discard it, and let the start go ahead.
+                let mut retried = false;
                 if let Some(existing) = before.as_ref().filter(|v| live_instance(v)) {
-                    return Err(RpcError::new(409, "Conflict", already_started(ns, n, existing)));
+                    if !never_placed(existing) {
+                        return Err(RpcError::new(409, "Conflict", already_started(ns, n, existing)));
+                    }
+                    let phase = str_at(existing, "/status/phase");
+                    task.log(format!(
+                        "an earlier start never reached a node (phase {}{}); discarding it and starting again with \
+                         the current settings",
+                        if phase.is_empty() { "Pending" } else { phase },
+                        unschedulable(existing).map(|why| format!(": {why}")).unwrap_or_default(),
+                    ));
+                    let options = json!({ "apiVersion": "v1", "kind": "DeleteOptions", "gracePeriodSeconds": 0 });
+                    match kube.delete(&vmi(ns, n).path()?, Some(&options)).await {
+                        Ok(_) => {}
+                        Err(e) if e.is_not_found() => {}
+                        Err(e) => return Err(e.into()),
+                    }
+                    wait_until(
+                        &task,
+                        Duration::from_secs(120),
+                        || find(&kube, vmi(ns, n)),
+                        |v| match v {
+                            Some(v) if Some(str_at(v, "/metadata/uid").to_string()) == before_uid => None,
+                            _ => Some(Ok(None)),
+                        },
+                        vmi_state,
+                    )
+                    .await?;
+                    retried = true;
                 }
-                if let Err(e) = kube.put(&vm_sub("start").path()?, Some(&json!({ "paused": options.paused }))).await {
+                // With run strategy Always the controller makes the new
+                // instance by itself, and a start request would be refused.
+                let recreated = retried && find(&kube, vmi(ns, n)).await?.is_some();
+                if recreated {
+                    task.log("the controller created a new instance");
+                } else if let Err(e) =
+                    kube.put(&vm_sub("start").path()?, Some(&json!({ "paused": options.paused }))).await
+                {
                     if e.message.contains("already running") {
                         let existing = find(&kube, vmi(ns, n)).await.ok().flatten();
                         let message = match existing.as_ref() {
@@ -325,7 +371,10 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                     &task,
                     Duration::from_secs(600),
                     || async {
-                        let instance = find(&kube, vmi(ns, n)).await?;
+                        // After a retry, the discarded instance is not this start's.
+                        let instance = find(&kube, vmi(ns, n))
+                            .await?
+                            .filter(|v| !retried || Some(str_at(v, "/metadata/uid").to_string()) != before_uid);
                         let machine = find(&kube, vm(ns, n)).await?;
                         Ok::<_, ApiError>(Some(json!({ "vmi": instance, "vm": machine })))
                     },
@@ -1321,6 +1370,13 @@ mod tests {
                 }]
             }
         })
+    }
+
+    #[test]
+    fn only_an_unplaced_instance_is_retried() {
+        assert!(never_placed(&stuck()));
+        assert!(!never_placed(&json!({ "status": { "phase": "Scheduled", "nodeName": "pve-thin-5" } })));
+        assert!(!never_placed(&json!({ "status": { "phase": "Running", "nodeName": "pve-thin-5" } })));
     }
 
     #[test]
