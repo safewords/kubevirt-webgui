@@ -7,7 +7,7 @@ import {
 import type { ObjectContext, PluginApi } from '@/plugins/registry'
 import { vmApi } from '@/api/k8s'
 import { confirm, openDialog, run } from '@/services/dialogs'
-import { vmState } from '@/util/kubevirt'
+import { liveInstance, vmState } from '@/util/kubevirt'
 import VmSummary from './VmSummary.vue'
 import VmConsole from './VmConsole.vue'
 import VmYaml from './VmYaml.vue'
@@ -25,6 +25,10 @@ import { editNotes, editTags } from './options'
 
 const state = (ctx: ObjectContext) => vmState(ctx.object, ctx.related.vmi)
 const isRunning = (ctx: ObjectContext) => ['running', 'paused', 'migrating'].includes(state(ctx))
+// An error state with an instance still present (ErrorUnschedulable, image
+// pull failures) is a start that is stuck, not a VM that is down: KubeVirt
+// refuses another start, and the way out is to stop it.
+const stuckStarting = (ctx: ObjectContext) => ['error', 'unknown'].includes(state(ctx)) && liveInstance(ctx.related.vmi)
 const subresource = (ctx: ObjectContext, resource: 'virtualmachines' | 'virtualmachineinstances', sub: string) => ({
   verb: 'update',
   group: 'subresources.kubevirt.io',
@@ -61,7 +65,7 @@ export function setupVm(api: PluginApi) {
     icon: faPlay,
     group: 'primary',
     order: 10,
-    enabled: (ctx) => !!ctx.object && ['stopped', 'error', 'unknown'].includes(state(ctx)),
+    enabled: (ctx) => !!ctx.object && ['stopped', 'error', 'unknown'].includes(state(ctx)) && !stuckStarting(ctx),
     access: (ctx) => subresource(ctx, 'virtualmachines', 'start'),
     run: (ctx) => power(ctx, 'start', 'Start'),
   })
@@ -84,7 +88,7 @@ export function setupVm(api: PluginApi) {
     order: 20,
     title: 'Stop',
     icon: faStop,
-    enabled: (ctx) => isRunning(ctx) || state(ctx) === 'starting' || state(ctx) === 'stopping',
+    enabled: (ctx) => isRunning(ctx) || state(ctx) === 'starting' || state(ctx) === 'stopping' || stuckStarting(ctx),
     access: (ctx) => subresource(ctx, 'virtualmachines', 'stop'),
     run: (ctx) => power(ctx, 'stop', 'Stop', { force: true, danger: true, ask: `Stop ${ctx.namespace}/${ctx.name} immediately? This is like pulling the power cable; unsaved data in the guest is lost.` }),
   })

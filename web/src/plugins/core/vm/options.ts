@@ -6,7 +6,7 @@ import {
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import type { ObjectContext } from '@/plugins/registry'
 import { openDialog, toast } from '@/services/dialogs'
-import { NOTES_ANNOTATION, runStrategy, tags } from '@/util/kubevirt'
+import { NOTES_ANNOTATION, affinityHostnames, runStrategy, tags } from '@/util/kubevirt'
 import FormDialog from './FormDialog.vue'
 import TagsDialog from './TagsDialog.vue'
 import BootOrderDialog from './BootOrderDialog.vue'
@@ -198,9 +198,14 @@ function yamlEditor(field: 'affinity' | 'tolerations', title: string, descriptio
   }
 }
 
-function summarizeSelector(selector: Record<string, string> | undefined): string {
+function summarizeSelector(selector: Record<string, string> | undefined, spec?: any): string {
   const entries = Object.entries(selector ?? {})
-  if (!entries.length) return 'any node'
+  // Required node affinity restricts placement as hard as a selector does;
+  // leaving it out here made a pinned VM read as "any node".
+  const hosts = affinityHostnames(spec)
+  const viaAffinity = hosts ? ` (affinity: only ${hosts.join(', ') || 'no node'})` : ''
+  if (!entries.length) return hosts ? `only ${hosts.join(', ') || 'no node'} (set by affinity)` : 'any node'
+  if (viaAffinity) return `${entries.map(([k, v]) => `${k}=${v}`).join(', ')}${viaAffinity}`
   if (entries.length === 1 && entries[0][0] === 'kubernetes.io/hostname') return `pinned to ${entries[0][1]}`
   return entries.map(([k, v]) => `${k}=${v}`).join(', ')
 }
@@ -226,7 +231,7 @@ export function optionRows(ctx: ObjectContext): OptionRow[] {
     { id: 'eviction', icon: faPersonWalkingArrowRight, label: 'Eviction strategy', value: spec.evictionStrategy ?? 'cluster default', edit: editEviction },
     { id: 'boot', icon: faListOl, label: 'Boot order', value: bootOrderSummary(spec), edit: (c) => openDialog(BootOrderDialog, { ctx: c }).then((r) => r && saved('Boot order')) },
     { id: 'grace', icon: faHourglassHalf, label: 'Shutdown timeout', value: spec.terminationGracePeriodSeconds !== undefined ? `${spec.terminationGracePeriodSeconds}s` : 'default (180s)', edit: editGrace },
-    { id: 'placement', icon: faLocationDot, label: 'Node placement', value: summarizeSelector(spec.nodeSelector), edit: (c) => openDialog(PlacementDialog, { ctx: c }).then((r) => r && saved('Node placement')) },
+    { id: 'placement', icon: faLocationDot, label: 'Node placement', value: summarizeSelector(spec.nodeSelector, spec), edit: (c) => openDialog(PlacementDialog, { ctx: c }).then((r) => r && saved('Node placement')) },
     {
       id: 'affinity',
       icon: faDiagramProject,

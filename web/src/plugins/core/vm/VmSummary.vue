@@ -10,7 +10,8 @@ import Gauge from '@/components/ui/Gauge.vue'
 import TimeChart from '@/components/ui/TimeChart.vue'
 import StateBadge from '@/components/ui/StateBadge.vue'
 import Notice from '@/components/ui/Notice.vue'
-import { addresses, condition, instancetypeName, isTrue, memoryBytes, osName, preferenceName, runStrategy, templateSpec, vcpus, vmState, tags, NOTES_ANNOTATION } from '@/util/kubevirt'
+import { addresses, condition, instancetypeName, isTrue, memoryBytes, osName, preferenceName, runStrategy, templateSpec, vcpus, vmState, tags, NOTES_ANNOTATION, schedulingHints, unschedulableReason } from '@/util/kubevirt'
+import { useInventory } from '@/plugins/core/inventory'
 import { age, bytes, cores, dateTime, quantity } from '@/util/format'
 import { routeTo } from '@/util/nav'
 
@@ -70,6 +71,9 @@ const notes = computed(() => vm.value?.metadata.annotations?.[NOTES_ANNOTATION] 
 const agent = computed(() => condition(vmi.value, 'AgentConnected'))
 const volumes = computed(() => spec.value?.volumes ?? [])
 const nics = computed(() => spec.value?.domain?.devices?.interfaces ?? [])
+const inv = useInventory()
+const unschedulable = computed(() => unschedulableReason(vmi.value))
+const hints = computed(() => (unschedulable.value ? schedulingHints(unschedulable.value, spec.value, inv.nodes) : []))
 </script>
 
 <template>
@@ -171,6 +175,16 @@ const nics = computed(() => spec.value?.domain?.devices?.interfaces ?? [])
       <div class="card-header">Notes</div>
       <div class="p-3 whitespace-pre-wrap">{{ notes }}</div>
     </div>
+    <Notice v-if="unschedulable" kind="error" class="xl:col-span-2">
+      <p class="font-medium">This VM was started but cannot be placed on any node, so it is not running.</p>
+      <ul v-if="hints.length" class="mt-1.5 list-disc space-y-1 pl-5">
+        <li v-for="(h, i) in hints" :key="i">{{ h.problem }} <span class="text-fg-muted">Remedy: {{ h.remedy }}</span></li>
+      </ul>
+      <p class="mt-1.5 text-xs text-fg-muted">
+        Start is unavailable while this attempt is pending — KubeVirt answers “already running”. Fix the cause and it starts by itself, or Stop to cancel the attempt.
+        Scheduler: <span class="mono">{{ unschedulable }}</span>
+      </p>
+    </Notice>
     <Notice v-if="vm?.status?.stateChangeRequests?.length" kind="info" class="xl:col-span-2">A state change is pending: {{ vm.status.stateChangeRequests.map((r: any) => r.action).join(', ') }}</Notice>
   </div>
 </template>

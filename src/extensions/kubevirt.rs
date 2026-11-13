@@ -155,6 +155,79 @@ fn unschedulable(vmi: &Value) -> Option<String> {
     condition(vmi, "PodScheduled", "False")
 }
 
+/// An instance that exists and has not finished; KubeVirt will not start
+/// another while it is there.
+fn live_instance(vmi: &Value) -> bool {
+    !matches!(str_at(vmi, "/status/phase"), "Succeeded" | "Failed")
+}
+
+/// Why a start is refused because an instance already exists, with the
+/// remedy — the scheduler's reasons spelled out when that is what holds it.
+fn already_started(ns: &str, name: &str, vmi: &Value) -> String {
+    let phase = str_at(vmi, "/status/phase");
+    let phase = if phase.is_empty() { "Pending" } else { phase };
+    match unschedulable(vmi) {
+        Some(why) => {
+            let mut out = format!(
+                "{ns}/{name} is already started — KubeVirt calls it \"already running\" — but its pod cannot be \
+                 placed on any node, so the guest is not running. It will start by itself once the cause is fixed; \
+                 Stop cancels the attempt."
+            );
+            for (problem, remedy) in scheduling_hints(&why) {
+                out.push_str(&format!("\n• {problem} Remedy: {remedy}"));
+            }
+            out.push_str(&format!("\nScheduler: {why}"));
+            out
+        }
+        None if phase == "Running" => format!("{ns}/{name} is already running."),
+        None => format!(
+            "{ns}/{name} already has an instance in phase {phase}, so it cannot be started again. Remedy: wait for it, \
+             or Stop it and start again."
+        ),
+    }
+}
+
+/// The scheduler's reasons ("1 Insufficient memory, 2 node(s) had untolerated
+/// taint(s)"), each as a plain explanation and a remedy.
+fn scheduling_hints(message: &str) -> Vec<(&'static str, &'static str)> {
+    let m = message.to_ascii_lowercase();
+    let mut out = Vec::new();
+    if m.contains("insufficient memory") {
+        out.push((
+            "A node the VM is allowed on does not have its memory (plus overhead) left to reserve.",
+            "stop or migrate another VM off that node, lower this VM's memory, or widen its placement.",
+        ));
+    }
+    if m.contains("insufficient cpu") {
+        out.push((
+            "No allowed node has enough unreserved CPU.",
+            "free CPU there, lower the vCPUs, or widen the placement.",
+        ));
+    }
+    if m.contains("node affinity/selector") {
+        out.push((
+            "Some nodes are ruled out by the VM's node placement or affinity (a pin to a node that is off or gone counts).",
+            "edit Options → Affinity / Node placement to allow a node that is online and has room.",
+        ));
+    }
+    if m.contains("untolerated taint") {
+        out.push((
+            "Some nodes carry a taint the VM does not tolerate — usually a node that is offline or shut down.",
+            "bring the node back online.",
+        ));
+    }
+    if m.contains("were unschedulable") {
+        out.push(("Some nodes are cordoned (maintenance or offline).", "uncordon a node once it is healthy."));
+    }
+    if m.contains("volume node affinity conflict") {
+        out.push((
+            "A disk is on storage only some nodes can reach, and none of them is available.",
+            "bring that node online, or move the disk to shared storage.",
+        ));
+    }
+    out
+}
+
 fn condition(object: &Value, kind: &str, status: &str) -> Option<String> {
     object.pointer("/status/conditions")?.as_array()?.iter().find_map(|c| {
         (c["type"] == kind && c["status"] == status).then(|| {
@@ -213,7 +286,25 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
 
         match action {
             "start" => {
+                // KubeVirt answers "VM is already running" to a start while an
+                // instance exists, even one whose pod was never placed. Say
+                // what is really going on, and what to do, instead.
+                if let Some(existing) = before.as_ref().filter(|v| live_instance(v)) {
+                    return Err(RpcError::new(409, "Conflict", already_started(ns, n, existing)));
+                }
                 if let Err(e) = kube.put(&vm_sub("start").path()?, Some(&json!({ "paused": options.paused }))).await {
+                    if e.message.contains("already running") {
+                        let existing = find(&kube, vmi(ns, n)).await.ok().flatten();
+                        let message = match existing.as_ref() {
+                            Some(v) => already_started(ns, n, v),
+                            None => format!(
+                                "KubeVirt says {ns}/{n} is already running, but it has no instance: its run strategy \
+                                 starts it by itself. Remedy: wait for the controller, or set the run strategy to \
+                                 Manual or Halted if it should stay down."
+                            ),
+                        };
+                        return Err(RpcError::new(409, "Conflict", message));
+                    }
                     // virt-api refuses a start while an earlier one is still
                     // queued; the VM's Failure condition says why it is stuck.
                     let pending = find(&kube, vm(ns, n)).await.ok().flatten().as_ref().and_then(vm_failure);
@@ -1211,4 +1302,46 @@ async fn datavolume_create(ctx: Ctx, p: Value) -> RpcResult {
             _ => Ok(Some("disk is ready".into())),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// rm-server's VMI on 2026-11-13: started, never placed.
+    fn stuck() -> Value {
+        json!({
+            "status": {
+                "phase": "Scheduling",
+                "conditions": [{
+                    "type": "PodScheduled",
+                    "status": "False",
+                    "reason": "Unschedulable",
+                    "message": "0/8 nodes are available: 1 Insufficient memory, 2 node(s) didn't match Pod's node affinity/selector, 2 node(s) had untolerated taint(s), 3 node(s) were unschedulable."
+                }]
+            }
+        })
+    }
+
+    #[test]
+    fn a_scheduling_instance_blocks_start() {
+        assert!(live_instance(&stuck()));
+        assert!(!live_instance(&json!({ "status": { "phase": "Failed" } })));
+        assert!(!live_instance(&json!({ "status": { "phase": "Succeeded" } })));
+    }
+
+    #[test]
+    fn already_started_explains_each_reason_with_a_remedy() {
+        let message = already_started("ns", "rm-server", &stuck());
+        assert!(message.contains("cannot be placed"), "{message}");
+        assert!(message.contains("Stop cancels"), "{message}");
+        assert_eq!(message.matches("Remedy:").count(), 4, "{message}");
+        assert!(message.contains("Scheduler: 0/8 nodes"), "{message}");
+    }
+
+    #[test]
+    fn a_pending_instance_without_a_reason_says_to_wait() {
+        let message = already_started("ns", "vm", &json!({ "status": { "phase": "Scheduled" } }));
+        assert!(message.contains("phase Scheduled") && message.contains("Remedy"), "{message}");
+    }
 }

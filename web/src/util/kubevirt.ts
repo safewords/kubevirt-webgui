@@ -48,6 +48,94 @@ export function vmState(vm: KObject | null | undefined, vmi?: KObject | null): V
   return printable ? 'unknown' : 'stopped'
 }
 
+/**
+ * A VMI that still exists and has not finished. KubeVirt refuses to start a
+ * VM that has one ("VM is already running") even when its pod was never
+ * scheduled, so such a VM has to be stopped, not started.
+ */
+export function liveInstance(vmi: KObject | null | undefined): boolean {
+  if (!vmi) return false
+  return !['Succeeded', 'Failed'].includes(vmi.status?.phase ?? '')
+}
+
+/** Why the scheduler cannot place a VMI's pod, when it cannot. */
+export function unschedulableReason(vmi: KObject | null | undefined): string | null {
+  const c = condition(vmi, 'PodScheduled')
+  if (!c || c.status !== 'False') return null
+  return c.message || c.reason || 'the pod cannot be scheduled'
+}
+
+/**
+ * Hostnames a template's required node affinity restricts it to, or null
+ * when it does not name any. Terms are ORed, so a term without a hostname
+ * `In` leaves the VM free to go elsewhere and the result is null.
+ */
+export function affinityHostnames(spec: any): string[] | null {
+  const terms: any[] = spec?.affinity?.nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms ?? []
+  if (!terms.length) return null
+  const out = new Set<string>()
+  for (const term of terms) {
+    const ins = (term.matchExpressions ?? []).filter((e: any) => e.key === 'kubernetes.io/hostname' && e.operator === 'In')
+    if (!ins.length) return null
+    // Several `In`s in one term are ANDed: only hosts in every list qualify.
+    let hosts: string[] = ins[0].values ?? []
+    for (const e of ins.slice(1)) hosts = hosts.filter((h) => (e.values ?? []).includes(h))
+    hosts.forEach((h) => out.add(h))
+  }
+  return [...out]
+}
+
+export interface SchedulingHint {
+  /** What the scheduler's phrase means for this VM. */
+  problem: string
+  /** What to do about it. */
+  remedy: string
+}
+
+/**
+ * Turn the scheduler's "0/8 nodes are available: 1 Insufficient memory, …"
+ * into one explanation and remedy per reason. `nodes` lets a hostname pin
+ * that names a node the cluster does not have be called out by name.
+ */
+export function schedulingHints(message: string, spec: any, nodes: KObject[] = []): SchedulingHint[] {
+  const hints: SchedulingHint[] = []
+  const memory = spec?.domain?.memory?.guest ?? spec?.domain?.resources?.requests?.memory
+  const pinned = affinityHostnames(spec)
+  const selectorHost = spec?.nodeSelector?.['kubernetes.io/hostname']
+  const known = new Set(nodes.map((n) => n.metadata.name))
+  const missing = [...(pinned ?? []), ...(selectorHost ? [selectorHost] : [])].filter((h) => nodes.length && !known.has(h))
+
+  if (/Insufficient memory/i.test(message)) {
+    hints.push({
+      problem: `A node this VM is allowed on does not have ${memory ? `${memory} plus overhead` : 'enough memory'} left to reserve.`,
+      remedy: 'Stop or migrate another VM off that node, lower this VM’s memory (Hardware), or widen its placement so it may use a node with room.',
+    })
+  }
+  if (/Insufficient cpu/i.test(message)) {
+    hints.push({ problem: 'No allowed node has enough unreserved CPU.', remedy: 'Free CPU on an allowed node, lower the vCPU count, or widen the placement.' })
+  }
+  if (/didn't match Pod's node affinity\/selector/i.test(message)) {
+    const where = pinned?.length ? `its affinity limits it to ${pinned.join(', ')}` : selectorHost ? `it is pinned to ${selectorHost}` : 'its node selector or affinity rules out those nodes'
+    hints.push({
+      problem: `Some nodes are ruled out by placement: ${where}.${missing.length ? ` ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not in the cluster.` : ''}`,
+      remedy: 'Edit Options → Affinity / Node placement to allow a node that is online and has room. Nodes that are off cannot take it until they are back.',
+    })
+  }
+  if (/untolerated taint/i.test(message)) {
+    hints.push({ problem: 'Some nodes carry a taint the VM does not tolerate — usually a node that is offline or shut down.', remedy: 'Bring the node back online, or add a toleration only if the taint is meant to be crossed.' })
+  }
+  if (/were unschedulable|node\(s\) unschedulable/i.test(message)) {
+    hints.push({ problem: 'Some nodes are cordoned (maintenance or offline).', remedy: 'Uncordon a node from its page once it is healthy.' })
+  }
+  if (/Insufficient devices\.kubevirt\.io|Insufficient .*gpu|Insufficient .*usb/i.test(message)) {
+    hints.push({ problem: 'No allowed node has the device this VM asks for free.', remedy: 'Release the device from the VM holding it, or remove it from this VM’s hardware.' })
+  }
+  if (/volume node affinity conflict/i.test(message)) {
+    hints.push({ problem: 'A disk lives on storage that only some nodes can reach, and none of those are allowed or available.', remedy: 'Bring that node online, or move the disk to shared storage.' })
+  }
+  return hints
+}
+
 export const stateStyle: Record<VmState, { label: string; text: string; dot: string }> = {
   running: { label: 'running', text: 'text-ok', dot: 'bg-ok' },
   stopped: { label: 'stopped', text: 'text-fg-subtle', dot: 'bg-fg-subtle' },
