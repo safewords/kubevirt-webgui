@@ -74,6 +74,23 @@ const nics = computed(() => spec.value?.domain?.devices?.interfaces ?? [])
 const inv = useInventory()
 const unschedulable = computed(() => unschedulableReason(vmi.value))
 const hints = computed(() => (unschedulable.value ? schedulingHints(unschedulable.value, spec.value, inv.nodes) : []))
+// The pending attempt was made from the VM as it was then; KubeVirt does not
+// update it when the VM changes (it only sets RestartRequired). Say what
+// differs, so a fix already made does not look like it did nothing.
+const staleChanges = computed(() => {
+  if (!vmi.value || !vm.value) return []
+  const now = templateSpec(vm.value)
+  const then = vmi.value.spec ?? {}
+  const out: string[] = []
+  const memNow = now?.domain?.memory?.guest ?? now?.domain?.resources?.requests?.memory
+  const memThen = then?.domain?.memory?.guest ?? then?.domain?.resources?.requests?.memory
+  if (memNow && memThen && quantity(memNow) !== quantity(memThen)) out.push(`memory ${memThen} → ${memNow}`)
+  if (vcpus(now) !== vcpus(then)) out.push(`vCPUs ${vcpus(then)} → ${vcpus(now)}`)
+  const place = (s: any) => JSON.stringify([s?.nodeSelector ?? null, s?.affinity?.nodeAffinity ?? null, s?.tolerations ?? null])
+  if (place(now) !== place(then)) out.push('placement (node selector, affinity or tolerations)')
+  if (!out.length && isTrue(vm.value, 'RestartRequired')) out.push('settings that need a restart')
+  return out
+})
 </script>
 
 <template>
@@ -177,6 +194,10 @@ const hints = computed(() => (unschedulable.value ? schedulingHints(unschedulabl
     </div>
     <Notice v-if="unschedulable" kind="error" class="xl:col-span-2">
       <p class="font-medium">This VM was started but cannot be placed on any node, so it is not running.</p>
+      <p v-if="staleChanges.length" class="mt-1.5">
+        This attempt was made before your changes — {{ staleChanges.join(', ') }} — and keeps the old settings; the reasons below are about it.
+        <strong>Press Start</strong> to discard it and try again with the current settings.
+      </p>
       <ul v-if="hints.length" class="mt-1.5 list-disc space-y-1 pl-5">
         <li v-for="(h, i) in hints" :key="i">{{ h.problem }} <span class="text-fg-muted">Remedy: {{ h.remedy }}</span></li>
       </ul>

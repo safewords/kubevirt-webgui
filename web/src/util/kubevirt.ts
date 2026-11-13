@@ -107,7 +107,7 @@ export function schedulingHints(message: string, spec: any, nodes: KObject[] = [
 
   if (/Insufficient memory/i.test(message)) {
     hints.push({
-      problem: `A node this VM is allowed on does not have ${memory ? `${memory} plus overhead` : 'enough memory'} left to reserve.`,
+      problem: `A node this attempt is allowed on does not have the ${memory ? `${memory} plus overhead` : 'memory'} it asks for left to reserve.`,
       remedy: 'Stop or migrate another VM off that node, lower this VM’s memory (Hardware), or widen its placement so it may use a node with room.',
     })
   }
