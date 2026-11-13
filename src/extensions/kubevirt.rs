@@ -161,6 +161,15 @@ fn live_instance(vmi: &Value) -> bool {
     !matches!(str_at(vmi, "/status/phase"), "Succeeded" | "Failed")
 }
 
+/// A VM's run strategy, with the older `running` field read as KubeVirt does.
+fn run_strategy(vm: &Value) -> &str {
+    match vm.pointer("/spec/runStrategy").and_then(Value::as_str) {
+        Some(strategy) => strategy,
+        None if vm.pointer("/spec/running") == Some(&Value::Bool(true)) => "Always",
+        None => "Halted",
+    }
+}
+
 /// An instance the scheduler never placed: no node, so no guest ever ran.
 fn never_placed(vmi: &Value) -> bool {
     str_at(vmi, "/status/nodeName").is_empty() && matches!(str_at(vmi, "/status/phase"), "" | "Pending" | "Scheduling")
@@ -332,9 +341,24 @@ async fn power(ctx: Ctx, p: Value, action: &'static str) -> RpcResult {
                     retried = true;
                 }
                 // With run strategy Always the controller makes the new
-                // instance by itself, and a start request would be refused.
-                let recreated = retried && find(&kube, vmi(ns, n)).await?.is_some();
-                if recreated {
+                // instance by itself, a moment after the old one goes, and
+                // refuses a start request ("Always does not support manual
+                // start requests"). Wait for it rather than asking.
+                let controller_starts =
+                    retried && find(&kube, vm(ns, n)).await?.as_ref().is_some_and(|m| run_strategy(m) == "Always");
+                if controller_starts {
+                    task.log("run strategy Always: waiting for the controller to create the new instance");
+                    wait_until(
+                        &task,
+                        Duration::from_secs(120),
+                        || find(&kube, vmi(ns, n)),
+                        |v| match v {
+                            Some(v) if Some(str_at(v, "/metadata/uid").to_string()) != before_uid => Some(Ok(None)),
+                            _ => None,
+                        },
+                        vmi_state,
+                    )
+                    .await?;
                     task.log("the controller created a new instance");
                 } else if let Err(e) =
                     kube.put(&vm_sub("start").path()?, Some(&json!({ "paused": options.paused }))).await
@@ -1370,6 +1394,14 @@ mod tests {
                 }]
             }
         })
+    }
+
+    #[test]
+    fn run_strategy_reads_the_old_running_field() {
+        assert_eq!(run_strategy(&json!({ "spec": { "runStrategy": "Always" } })), "Always");
+        assert_eq!(run_strategy(&json!({ "spec": { "runStrategy": "Manual" } })), "Manual");
+        assert_eq!(run_strategy(&json!({ "spec": { "running": true } })), "Always");
+        assert_eq!(run_strategy(&json!({ "spec": { "running": false } })), "Halted");
     }
 
     #[test]
