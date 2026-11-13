@@ -178,7 +178,13 @@ const nodesWithoutPlugin = computed(() => {
   const covered = new Set(csiPods.items.value.filter((p) => p.metadata.labels?.component === 'nodeplugin' && p.status?.phase === 'Running').map((p) => p.spec?.nodeName))
   return inv.nodes.filter((n) => nodeReady(n) && n.metadata.labels?.['kubevirt.io/schedulable'] === 'true' && !covered.has(n.metadata.name)).map((n) => n.metadata.name)
 })
-const flappingPlugins = computed(() => csiPods.items.value.filter((p) => restarts(p) >= 20))
+// A lifetime count only grows; what matters is a pod that is restarting now.
+const RECENT_MS = 24 * 3600 * 1000
+const restartedRecently = (p: KObject) => {
+  const last = lastRestart(p)
+  return !!last && Date.now() - new Date(last).getTime() < RECENT_MS
+}
+const flappingPlugins = computed(() => csiPods.items.value.filter((p) => restartedRecently(p) && restarts(p) >= 5))
 
 // Every disk on Ceph: its RBD image, the VM that uses it, and where it is attached.
 const pvs = useClusterWatch(() => 'v1', '', 'persistentvolumes')
@@ -307,12 +313,18 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`
         No running Ceph node plugin on {{ nodesWithoutPlugin.join(', ') }}: VMs with Ceph disks cannot start there until it runs.
       </Notice>
       <Notice v-if="flappingPlugins.length" kind="warning" class="mb-2">
-        {{ flappingPlugins.map((p) => `${p.metadata.name} on ${p.spec?.nodeName} (${restarts(p)} restarts)`).join('; ') }} — a node plugin that keeps restarting drops disk mappings while it is down; its logs say why (
-        <code class="mono">kubectl logs -n {{ flappingPlugins[0].metadata.namespace }} {{ flappingPlugins[0].metadata.name }} --all-containers --previous</code>).
+        Restarted in the last 24 hours:
+        <ul class="mt-1 list-disc space-y-1 pl-5">
+          <li v-for="p in flappingPlugins" :key="p.metadata.uid">
+            {{ p.metadata.name }} on {{ p.spec?.nodeName }} — {{ restarts(p) }} restarts, the last {{ age(lastRestart(p)!) }} ago. Its logs say why:
+            <code class="mono">kubectl logs -n {{ p.metadata.namespace }} {{ p.metadata.name }} --all-containers --previous</code>
+          </li>
+        </ul>
+        <p class="mt-1">While a node plugin is down, Ceph disks on that node cannot be mapped or unmapped.</p>
       </Notice>
       <DataTable :columns="podColumns" :rows="csiPods.items.value" :row-key="(p) => p.metadata.uid" filterable :default-sort="{ key: 'node', dir: 'asc' }" empty-text="No ceph-csi pods visible (looked for app=ceph-csi-rbd / ceph-csi-cephfs)">
         <template #cell-ready="{ row, value }"><span :class="row.status?.phase === 'Running' && String(value).split('/')[0] === String(value).split('/')[1] ? 'text-ok' : 'text-bad'">{{ value }}</span></template>
-        <template #cell-restarts="{ value }"><span :class="(value as number) >= 20 ? 'text-warn' : ''">{{ value }}</span></template>
+        <template #cell-restarts="{ row, value }"><span :class="restartedRecently(row) && (value as number) >= 5 ? 'text-warn' : ''">{{ value }}</span></template>
         <template #cell-last="{ value }">{{ value ? `${age(value as string)} ago` : '—' }}</template>
       </DataTable>
     </section>

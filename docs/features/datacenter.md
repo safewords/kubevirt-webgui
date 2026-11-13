@@ -233,7 +233,7 @@ the manager hosts' URLs, prefilled from ceph-csi's monitor list.
 | Section | Shows |
 |---|---|
 | Storage classes on Ceph | classes on `rbd.csi.ceph.com` / `cephfs.csi.ceph.com`, their pool, cluster ID and monitors (from ceph-csi's `ceph-csi-config` ConfigMap) |
-| CSI driver | every `app=ceph-csi-rbd` / `app=ceph-csi-cephfs` pod by node, readiness, restarts and the last restart; warns of a ready VM node with no running node plugin (VMs with Ceph disks cannot start there) and of a plugin restarting over and over |
+| CSI driver | every `app=ceph-csi-rbd` / `app=ceph-csi-cephfs` pod by node, readiness, restarts and the last restart; warns of a ready VM node with no running node plugin (VMs with Ceph disks cannot start there) and of a pod restarted in the last 24 hours with at least five restarts in all, with the `kubectl logs` command for each — a lifetime count alone is not flagged |
 | Disks on Ceph | every PersistentVolume on a Ceph driver: its claim, the VM using it (TPM/EFI state included), `pool/image`, size, access modes, and the node it is attached to from VolumeAttachments |
 
 ## Networks
