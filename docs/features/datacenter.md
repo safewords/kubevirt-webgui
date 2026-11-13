@@ -216,24 +216,64 @@ Claims and provisioned capacity count only the disks the user can see. See
 ## Ceph
 
 For clusters whose disks live on an external Ceph cluster through ceph-csi.
-Kubernetes sees Ceph only through the CSI driver, so the panel has two halves.
+Kubernetes sees Ceph only through the CSI driver, so the panel reads Ceph
+itself: health and trends from the manager's `prometheus` module, OSD detail
+and management from its dashboard REST API (see [configuration](../configuration.md#ceph)).
+Four tabs; the last one viewed is remembered per browser.
 
-**Ceph cluster** comes from the Ceph manager's `prometheus` module, fetched by
-the server from `CEPH_METRICS_URLS` (see [configuration](../configuration.md#ceph))
-and refreshed every 15 s: overall health and each raised check, explained for
-the common ones (`OSD_DOWN`, `PG_DEGRADED`, `PG_AVAILABILITY`, `SLOW_OPS`…);
-monitors in quorum; OSDs up/in with host, device class and fill; raw capacity;
-every pool with what it stores, what is free and which storage classes use it;
-and placement-group states other than active+clean. Without the setting, the
-section says how to turn it on — one `ceph mgr module enable prometheus` and
-the manager hosts' URLs, prefilled from ceph-csi's monitor list.
+**Overview** answers "is my data safe?" first. A headline is built from the
+checks and the figures rather than the bare `HEALTH_` string — HEALTH_ERR from
+an old key type is called a housekeeping item, not data loss — e.g. *Data is
+available, with reduced redundancy: 1 OSD is down (on vulpes-lagopus); 1.7% of
+data copies are missing*. Under it:
 
-**What Kubernetes knows** needs nothing extra:
+| Part | Shows |
+|---|---|
+| Tiles | data redundancy (object copies in place), raw capacity, OSDs up/in with monitor quorum and slow OSDs, client I/O now |
+| What Ceph is reporting | every raised check in plain words — what it means and what to do — grouped as *affects your data now*, *needs attention soon* and *housekeeping* |
+| Placement groups | one bar of exact PG states (`active+clean`, `active+undersized`, `active+undersized+degraded`…) in status colours with a legend |
+| Trends | client throughput and operations (read/write), raw capacity, and missing object copies while there are any |
+
+Trends are sampled by the server every 30 s from the moment the panel is first
+opened and kept in memory for 24 hours; they start empty after a restart.
+
+**OSDs** shows every machine as a card: its Kubernetes node state, the Ceph
+daemons it runs (mon, mgr, mds), and each OSD with state, device class, fill
+(with a tick at the cluster average, so imbalance shows), placement groups,
+commit latency now with a sparkline (amber past 50 ms), and I/O. A machine whose
+OSDs are all down is marked as such. **Maintenance** on a card sets `noout` on
+that machine's OSDs — so a reboot does not start Ceph copying its data
+elsewhere — and **End maintenance** clears it. Clicking an OSD opens its
+details: the disk (model, serial, firmware, SMART verdict, temperature,
+power-on hours, wear, reallocated/pending/uncorrectable sectors, media errors),
+where it sits (PGs, CRUSH weight, reweight, primary affinity), its latency over
+time, and the actions:
+
+| Action | What Ceph does |
+|---|---|
+| Mark out / in | stops placing data on the OSD and copies what it holds elsewhere / takes a share back |
+| Mark down | marks it down; a running OSD marks itself up again — for a stuck one |
+| Scrub / Deep scrub | checks metadata / checksums every object against the other copies |
+| Reweight | moves part of its share elsewhere — relieves a full or slow disk without taking it out |
+| Set / clear noout | for maintenance on that one disk |
+
+The **cluster flags** (`noout`, `norebalance`, `norecover`, `nobackfill`,
+`noscrub`, `nodeep-scrub`, `noin`, `noup`, `nodown`) are switches with what
+each does; `pause` is deliberately not offered. Every change asks first, runs
+as a task in the task log attributed to the user, and is offered only to users
+Kubernetes lets `update nodes`. Creating or removing OSDs needs a Ceph
+orchestrator (cephadm), which the panel says when it is missing.
+
+**Pools** shows raw capacity by device class and every pool's stored data
+against what it can still take, with replica type, PGs, objects and the
+Kubernetes storage classes on it.
+
+**Kubernetes** needs nothing from Ceph:
 
 | Section | Shows |
 |---|---|
 | Storage classes on Ceph | classes on `rbd.csi.ceph.com` / `cephfs.csi.ceph.com`, their pool, cluster ID and monitors (from ceph-csi's `ceph-csi-config` ConfigMap) |
-| CSI driver | every `app=ceph-csi-rbd` / `app=ceph-csi-cephfs` pod by node, readiness, restarts and the last restart; warns of a ready VM node with no running node plugin (VMs with Ceph disks cannot start there) and of a pod restarted in the last 24 hours with at least five restarts in all, with the `kubectl logs` command for each — a lifetime count alone is not flagged |
+| CSI driver | every `app=ceph-csi-rbd` / `app=ceph-csi-cephfs` pod by node, readiness, restarts and the last restart; warns of a ready VM node with no running node plugin (VMs with Ceph disks cannot start there) and of a pod restarted in the last 24 hours with at least five restarts in all, with the `kubectl logs` command for each |
 | Disks on Ceph | every PersistentVolume on a Ceph driver: its claim, the VM using it (TPM/EFI state included), `pool/image`, size, access modes, and the node it is attached to from VolumeAttachments |
 
 ## Networks

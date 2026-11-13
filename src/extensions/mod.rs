@@ -8,6 +8,7 @@
 
 pub mod atomic_usb;
 pub mod ceph;
+pub mod ceph_api;
 pub mod clone_access;
 pub mod core;
 pub mod datavolumes;

@@ -96,6 +96,20 @@ spec:
             - name: CEPH_METRICS_URLS
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.ceph.dashboard.urls }}
+            - name: CEPH_DASHBOARD_URLS
+              value: {{ join "," . | quote }}
+            {{- end }}
+            {{- with .Values.ceph.dashboard.certSha256 }}
+            - name: CEPH_DASHBOARD_CERT_SHA256
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.ceph.dashboard.existingSecret }}
+            - name: CEPH_DASHBOARD_USER
+              valueFrom: { secretKeyRef: { name: {{ . | quote }}, key: CEPH_DASHBOARD_USER } }
+            - name: CEPH_DASHBOARD_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ . | quote }}, key: CEPH_DASHBOARD_PASSWORD } }
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

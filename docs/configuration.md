@@ -103,6 +103,19 @@ The endpoints are the manager's `prometheus` module (`ceph mgr module enable
 prometheus`): plain read-only HTTP, no key. They are fetched by the server, not
 the browser, and only from this list.
 
+OSD usage, devices, SMART and every change (mark in/out/down, flags, reweight,
+scrub) go through the manager's **dashboard REST API**:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CEPH_DASHBOARD_URLS` | — | `https://host:8443` for every manager; only the active one answers (set `mgr/dashboard/standby_behaviour error`). Empty: the panel is read-only. |
+| `CEPH_DASHBOARD_USER` / `CEPH_DASHBOARD_PASSWORD` | — | A dashboard user, e.g. `ceph dashboard ac-user-create kubevirt-webgui -i <pwfile> cluster-manager`. Keep the password in a Secret. |
+| `CEPH_DASHBOARD_CERT_SHA256` | — | The dashboard certificate's SHA-256 fingerprint (colons optional). The certificate is pinned rather than checked against public roots, because it is normally self-signed. It must be **X.509 v3 with an RSA key**: `ceph dashboard create-self-signed-cert` makes a v1 certificate, which TLS libraries refuse, and the dashboard on Tentacle does not start with an EC key. |
+
+Changes are offered only to users Kubernetes lets `update nodes`, and each runs
+as a task attributed to them. Without an orchestrator (cephadm), OSDs cannot be
+created or removed from here.
+
 ## Helm values
 
 The chart maps one-to-one onto the variables above. The full list with comments
@@ -126,6 +139,7 @@ these are the ones most installs touch.
 | `plugins.urls` / `plugins.directory` | `[]` / `""` | `GUI_PLUGIN_URLS` / `GUI_PLUGIN_DIR` |
 | `proxmox.allowedHosts` | `[]` | `PROXMOX_ALLOWED_HOSTS` |
 | `ceph.metricsUrls` | `[]` | `CEPH_METRICS_URLS` |
+| `ceph.dashboard.urls` / `.existingSecret` / `.certSha256` | `[]` / `""` / `""` | `CEPH_DASHBOARD_URLS` / `CEPH_DASHBOARD_USER`+`_PASSWORD` from the Secret / `CEPH_DASHBOARD_CERT_SHA256` |
 | `extraEnv` | `[]` | anything else, including `RUST_LOG` |
 | `netagent.enabled` | `false` | installs the [off-subnet client NAT](features/networking.md#off-subnet-client-nat) node agent: a DaemonSet, its ServiceAccount and a ClusterRole reading VMIs |
 | `netagent.image.repository` / `.tag` | `ghcr.io/safewords/kubevirt-webgui-netagent` / chart `appVersion` | — |

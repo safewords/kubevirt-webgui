@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use rainier_framework::config::Env;
+use secrecy::SecretString;
 
 /// Everything the application reads from its environment.
 #[derive(Debug, Clone)]
@@ -47,6 +48,13 @@ pub struct Settings {
     /// tried in turn since only the active manager answers. Empty: the Ceph
     /// panel shows what Kubernetes knows, and how to turn this on.
     pub ceph_metrics_urls: Vec<String>,
+    /// The Ceph dashboard REST API on each manager (`https://host:8443`),
+    /// for OSD details and management. Empty: the Ceph panel is read-only.
+    pub ceph_dashboard_urls: Vec<String>,
+    pub ceph_dashboard_user: String,
+    pub ceph_dashboard_password: Option<SecretString>,
+    /// SHA-256 fingerprint the dashboard's (self-signed) certificate is pinned to.
+    pub ceph_dashboard_cert_sha256: Option<String>,
 }
 
 fn list(env: &Env, key: &str) -> Vec<String> {
@@ -76,6 +84,10 @@ impl Settings {
             max_frame_bytes: env.int("GUI_MAX_FRAME_BYTES", 16 * 1024 * 1024).max(64 * 1024) as usize,
             proxmox_allowed_hosts: list(env, "PROXMOX_ALLOWED_HOSTS"),
             ceph_metrics_urls: list(env, "CEPH_METRICS_URLS"),
+            ceph_dashboard_urls: list(env, "CEPH_DASHBOARD_URLS"),
+            ceph_dashboard_user: env.string("CEPH_DASHBOARD_USER", ""),
+            ceph_dashboard_password: optional(env, "CEPH_DASHBOARD_PASSWORD").map(SecretString::from),
+            ceph_dashboard_cert_sha256: optional(env, "CEPH_DASHBOARD_CERT_SHA256"),
         }
     }
 }

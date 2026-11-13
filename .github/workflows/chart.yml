@@ -37,6 +37,7 @@ jobs:
             --set settings.requireAuth=false \
             --set-json 'proxmox.allowedHosts=["10.0.0.0/24","pve.example.com"]' \
             --set-json 'ceph.metricsUrls=["http://10.0.0.2:9283/metrics"]' \
+            --set-json 'ceph.dashboard.urls=["https://10.0.0.2:8443"]' --set ceph.dashboard.existingSecret=ceph-dash,ceph.dashboard.certSha256=00 \
             --set-json 'settings.allowedOrigins=["https://virt.example.com"]' > rendered-alt.yaml
           curl -fsSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar -xz kubeconform
           ./kubeconform -strict -summary rendered.yaml rendered-alt.yaml

@@ -109,6 +109,20 @@ ceph:
   metricsUrls: []
   #  - http://10.0.4.2:9283/metrics
   #  - http://10.0.4.3:9283/metrics
+  # OSD details (usage, devices, SMART) and management (mark in/out, flags,
+  # reweight, scrub) through the manager's dashboard REST API. Every manager
+  # host; only the active one answers. Users need `update nodes` in
+  # Kubernetes to change anything.
+  dashboard:
+    urls: []
+    #  - https://10.0.4.2:8443
+    # A Secret with CEPH_DASHBOARD_USER and CEPH_DASHBOARD_PASSWORD (a
+    # dashboard user, e.g. role cluster-manager).
+    existingSecret: ""
+    # SHA-256 fingerprint of the dashboard certificate, which is usually
+    # self-signed: `openssl s_client -connect host:8443 </dev/null | openssl
+    # x509 -noout -fingerprint -sha256`. It must be an X.509 v3 certificate.
+    certSha256: ""
 
 # Browser plugins loaded at runtime, in addition to the built-in ones. URLs are
 # fetched by the browser; a path is served by this server itself.
