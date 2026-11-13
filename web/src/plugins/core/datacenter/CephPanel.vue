@@ -33,7 +33,7 @@ interface CephStatus {
   fetchedAt?: string
   health?: { status: string; checks: Array<{ name: string; severity: string }> }
   mons?: Array<{ name: string; host?: string; address?: string; version?: string; inQuorum: boolean }>
-  osds?: Array<{ id: string; host?: string; deviceClass?: string; up: boolean; in: boolean; bytes?: number; usedBytes?: number }>
+  osds?: Array<{ id: string; host?: string; deviceClass?: string; up: boolean; in: boolean; bytes?: number; usedBytes?: number; applyLatencyMs?: number; commitLatencyMs?: number }>
   capacity?: { totalBytes?: number; usedBytes?: number }
   pools?: Array<{ id: string; name: string; type?: string; storedBytes?: number; maxAvailBytes?: number; percentUsed?: number; objects?: number; pgs?: number }>
   pgs?: { total: number; states: Record<string, number> }
@@ -86,16 +86,37 @@ const CHECK_HELP: Record<string, string> = {
   OSDMAP_FLAGS: 'Cluster flags such as noout or norebalance are set — expected during maintenance, not otherwise.',
   RECENT_CRASH: 'A daemon crashed recently; `ceph crash ls` lists it, `ceph crash archive-all` clears the warning.',
   SLOW_OPS: 'Requests are taking a long time — guests on Ceph disks will feel it.',
+  BLUESTORE_SLOW_OP_ALERT: 'An OSD saw slow operations in its storage backend — often a failing or overloaded disk. Watch its latency below.',
+  MON_DISK_LOW: 'A monitor host is low on disk space for its database; at the critical ratio the monitor stops. Free space on that host.',
+  PG_NOT_SCRUBBED: 'Placement groups are overdue for scrubbing (consistency checks). Usually load or a down OSD holding scrubs back; not urgent on its own.',
+  PG_NOT_DEEP_SCRUBBED: 'Placement groups are overdue for deep scrubbing (checksumming every object). Usually load or a down OSD holding scrubs back.',
+  AUTH_INSECURE_SERVICE_KEY_TYPE: 'A daemon (an OSD, say) still uses an old AES key, which newer Ceph flags as insecure. Rotate its key; this alone raises HEALTH_ERR but does not stop I/O.',
+  AUTH_INSECURE_CLIENT_KEY_TYPE: 'A client key (client.admin, the CSI user…) uses an old AES key type. Rotating it means updating whatever holds that key.',
+  AUTH_INSECURE_KEYS_ALLOWED: 'The monitors still accept old AES keys — needed until every key is rotated, then turn it off.',
+  OSD_SCRUB_ERRORS: 'Scrubbing found inconsistent data; `ceph health detail` names the PGs to repair.',
+  PG_DAMAGED: 'Some placement groups are damaged; `ceph health detail` names them.',
 }
 
-const osdColumns: Column<NonNullable<CephStatus['osds']>[number]>[] = [
-  { key: 'id', label: 'OSD', value: (o) => Number(o.id) },
-  { key: 'host', label: 'Host', value: (o) => o.host ?? '' },
-  { key: 'class', label: 'Class', value: (o) => o.deviceClass ?? '' },
-  { key: 'state', label: 'State', value: (o) => `${o.up ? 'up' : 'down'} · ${o.in ? 'in' : 'out'}` },
-  { key: 'used', label: 'Used', align: 'right', value: (o) => (o.bytes ? (o.usedBytes ?? 0) / o.bytes : -1) },
-  { key: 'size', label: 'Size', align: 'right', value: (o) => o.bytes ?? 0 },
-]
+type Osd = NonNullable<CephStatus['osds']>[number]
+// Columns only for figures this Ceph release exports: Tentacle's manager
+// dropped per-OSD bytes, older ones may lack latency.
+const osdColumns = computed<Column<Osd>[]>(() => {
+  const osds = status.value?.osds ?? []
+  const cols: Column<Osd>[] = [
+    { key: 'id', label: 'OSD', value: (o) => Number(o.id) },
+    { key: 'host', label: 'Host', value: (o) => o.host ?? '' },
+    { key: 'class', label: 'Class', value: (o) => o.deviceClass ?? '' },
+    { key: 'state', label: 'State', value: (o) => `${o.up ? 'up' : 'down'} · ${o.in ? 'in' : 'out'}` },
+  ]
+  if (osds.some((o) => o.commitLatencyMs != null)) {
+    cols.push({ key: 'latency', label: 'Commit / apply latency', align: 'right', value: (o) => (o.up ? Math.max(o.commitLatencyMs ?? 0, o.applyLatencyMs ?? 0) : -1) })
+  }
+  if (osds.some((o) => o.bytes)) {
+    cols.push({ key: 'used', label: 'Used', align: 'right', value: (o) => (o.bytes ? (o.usedBytes ?? 0) / o.bytes : -1) })
+    cols.push({ key: 'size', label: 'Size', align: 'right', value: (o) => o.bytes ?? 0 })
+  }
+  return cols
+})
 const poolColumns: Column<NonNullable<CephStatus['pools']>[number]>[] = [
   { key: 'name', label: 'Pool', value: (p) => p.name },
   { key: 'type', label: 'Type', value: (p) => p.type ?? '' },
@@ -283,6 +304,10 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`
         <h4 class="mt-4 mb-1.5 flex items-center gap-2 font-medium"><Fa :icon="faHardDrive" class="text-fg-muted" /> OSDs</h4>
         <DataTable :columns="osdColumns" :rows="status.osds ?? []" :row-key="(o) => o.id" :default-sort="{ key: 'id', dir: 'asc' }" empty-text="No OSDs reported">
           <template #cell-state="{ row }"><span :class="row.up && row.in ? 'text-ok' : row.up ? 'text-warn' : 'text-bad'">{{ row.up ? 'up' : 'down' }} · {{ row.in ? 'in' : 'out' }}</span></template>
+          <template #cell-latency="{ row, value }">
+            <span v-if="(value as number) < 0" class="text-fg-subtle">—</span>
+            <span v-else :class="(value as number) > 100 ? 'text-bad' : (value as number) > 30 ? 'text-warn' : ''">{{ row.commitLatencyMs ?? '—' }} / {{ row.applyLatencyMs ?? '—' }} ms</span>
+          </template>
           <template #cell-used="{ value }">{{ (value as number) < 0 ? '—' : pct(value as number) }}</template>
           <template #cell-size="{ value }">{{ value ? bytes(value as number) : '—' }}</template>
         </DataTable>

@@ -273,6 +273,9 @@ fn summarize(m: &HashMap<String, Vec<Sample>>) -> Value {
     let inn = by(m, "ceph_osd_in", "ceph_daemon");
     let size = by(m, "ceph_osd_stat_bytes", "ceph_daemon");
     let used = by(m, "ceph_osd_stat_bytes_used", "ceph_daemon");
+    // Tentacle's manager no longer exports per-OSD bytes; latency it still does.
+    let apply = by(m, "ceph_osd_apply_latency_ms", "ceph_daemon");
+    let commit = by(m, "ceph_osd_commit_latency_ms", "ceph_daemon");
     let meta: HashMap<String, &Sample> = m
         .get("ceph_osd_metadata")
         .into_iter()
@@ -294,6 +297,8 @@ fn summarize(m: &HashMap<String, Vec<Sample>>) -> Value {
                 "in": inn.get(d).copied().unwrap_or(0.0) > 0.0,
                 "bytes": size.get(d),
                 "usedBytes": used.get(d),
+                "applyLatencyMs": apply.get(d),
+                "commitLatencyMs": commit.get(d),
             })
         })
         .collect();
@@ -371,6 +376,7 @@ ceph_osd_in{ceph_daemon="osd.10"} 1.0
 ceph_osd_in{ceph_daemon="osd.2"} 1.0
 ceph_osd_stat_bytes{ceph_daemon="osd.10"} 1000.0
 ceph_osd_stat_bytes_used{ceph_daemon="osd.10"} 250.0
+ceph_osd_commit_latency_ms{ceph_daemon="osd.10"} 3.0
 ceph_cluster_total_bytes 4000.0
 ceph_cluster_total_used_raw_bytes 1000.0
 ceph_pool_metadata{pool_id="2",name="kube",type="replicated",description="replica:3",compression_mode="none"} 1.0
@@ -409,6 +415,8 @@ odd_metric{label="with \"quotes\", commas"} 7 1700000000000
         assert_eq!(osds[0]["up"], false);
         assert_eq!(osds[0]["host"], "vulpes-lagopus");
         assert_eq!(osds[1]["usedBytes"], 250.0);
+        assert_eq!(osds[1]["commitLatencyMs"], 3.0);
+        assert!(osds[0]["commitLatencyMs"].is_null());
 
         assert_eq!(s["capacity"]["usedBytes"], 1000.0);
         assert_eq!(s["pools"][0]["name"], "kube");
