@@ -207,7 +207,7 @@ fn scheduling_hints(message: &str) -> Vec<(&'static str, &'static str)> {
     if m.contains("node affinity/selector") {
         out.push((
             "Some nodes are ruled out by the VM's node placement or affinity (a pin to a node that is off or gone counts).",
-            "edit Options → Affinity / Node placement to allow a node that is online and has room.",
+            "edit Options → Affinity / Node placement to allow a node that is online and has room, or — with every disk on Ceph — make the pin a preference there.",
         ));
     }
     if m.contains("untolerated taint") {

@@ -259,7 +259,7 @@ VM-wide settings, one per row, each edited in a small dialog. As with
 | **Eviction strategy** | `evictionStrategy`: cluster default, `LiveMigrate`, `LiveMigrateIfPossible`, `External`, `None` |
 | **Boot order** | `bootOrder` across disks and network devices |
 | **Shutdown timeout** | `terminationGracePeriodSeconds`, shown as `default (180s)` when unset |
-| **Node placement** | `nodeSelector`: any node, pinned to one, or matching labels |
+| **Node placement** | `nodeSelector`: any node, pinned to one, or matching labels; with every disk on Ceph, whether a hostname pin is strict or a preference (soft placement) |
 | **Affinity** | `affinity`, as YAML |
 | **Tolerations** | `tolerations`, as YAML |
 | **Hostname** | `hostname` and `subdomain` |
@@ -278,7 +278,22 @@ Some of these act immediately and some do not, which is the usual surprise:
   what a drain then reports.
 - **Node placement** pinned to one node makes the VM unable to live-migrate and
   keeps it down while that node is down. The label mode shows which nodes match
-  as you type.
+  as you type. The row also counts hostname pins in the required node affinity,
+  which the dialog names (flagging any that are not in the cluster) but does not
+  edit.
+- **Soft placement** — *When its pinned node cannot take it, start it on any
+  other node its rules allow* — is offered only when every disk the VM has,
+  and its persistent TPM/EFI state, is on a Ceph storage class (`rbd.csi.ceph.com`
+  or `cephfs.csi.ceph.com`), since only then can any node open them. It moves
+  each hostname pin — `nodeSelector` or a required affinity `In` — to a
+  preferred affinity term of weight 100: the VM still lands on its pinned node
+  when that node is up and has room, and on any other node otherwise. Every
+  other rule (labels, `NotIn` exclusions) stays required. The strict placement
+  is kept in the annotation `kubevirt-webgui/strict-placement`, flagged by
+  `kubevirt-webgui/soft-placement: "true"`; turning soft placement off writes it
+  back exactly. Saving **Affinity** by hand turns soft placement off, taking what
+  you wrote as the new strict placement. A start already pending keeps the old
+  rules: stop it and start again.
 - **Requests / limits** are what the scheduler reserves, separately from what
   the guest sees. Requests below the guest size overcommit the node.
 - Scheduling changes apply the next time the VM starts.
@@ -447,9 +462,9 @@ arrow opens the others.
 
 | Action | What it does | KubeVirt subresource | Offered when |
 |---|---|---|---|
-| **Start** | Starts the VM and follows it until the VMI reports `Running`, for up to 600 s | `virtualmachines/start` | state is `stopped`, `error` or `unknown` |
+| **Start** | Starts the VM and follows it until the VMI reports `Running`, for up to 600 s | `virtualmachines/start` | state is `stopped`, `error` or `unknown`, and no unfinished instance exists |
 | **Shutdown** | Asks the guest to power off (ACPI) and lets it use its grace period; follows it for up to 900 s | `virtualmachines/stop` | `running`, `paused` or `migrating` |
-| **Stop** | Sends `gracePeriod: 0` — like pulling the power cable; unsaved data in the guest is lost | `virtualmachines/stop` | `running`, `paused`, `migrating`, `starting` or `stopping` |
+| **Stop** | Sends `gracePeriod: 0` — like pulling the power cable; unsaved data in the guest is lost | `virtualmachines/stop` | `running`, `paused`, `migrating`, `starting` or `stopping`, or `error`/`unknown` with an unfinished instance (a start stuck unschedulable) |
 | **Reboot** | Soft reboot from inside the guest; keeps the same instance | `virtualmachineinstances/softreboot` | `running` |
 | **Restart (new instance)** | Recreates the instance, picking up configuration changes; it may land on another node | `virtualmachines/restart` | `running`, `paused` or `migrating` |
 | **Reset** | Hard reset; the guest restarts without shutting down | `virtualmachineinstances/reset` | `running` |
@@ -464,7 +479,12 @@ where it can: a launcher pod the scheduler cannot place logs the scheduler's
 reason; a VM whose instance cannot even be created (a disk CDI refuses to make,
 say) fails with the VM's `Failure` condition instead of waiting out the 600 s;
 and a start refused because an earlier one is still queued — KubeVirt's *stop/start
-already underway* — names what that earlier start is stuck on. **Shutdown**, **Stop**,
+already underway* — names what that earlier start is stuck on; and a start refused
+because an instance already exists — KubeVirt's *VM is already running*, which it
+also says of an instance the scheduler never placed — explains that the VM is
+started but unplaced, spells out each of the scheduler's reasons with a remedy,
+and points at **Stop**. The **Summary** panel shows the same explanation while
+the instance waits. **Shutdown**, **Stop**,
 **Reboot**, **Restart** and **Reset** ask for confirmation first; **Stop** and
 **Reset** are marked as dangerous.
 

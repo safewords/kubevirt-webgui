@@ -118,7 +118,7 @@ export function schedulingHints(message: string, spec: any, nodes: KObject[] = [
     const where = pinned?.length ? `its affinity limits it to ${pinned.join(', ')}` : selectorHost ? `it is pinned to ${selectorHost}` : 'its node selector or affinity rules out those nodes'
     hints.push({
       problem: `Some nodes are ruled out by placement: ${where}.${missing.length ? ` ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not in the cluster.` : ''}`,
-      remedy: 'Edit Options → Affinity / Node placement to allow a node that is online and has room. Nodes that are off cannot take it until they are back.',
+      remedy: 'Edit Options → Affinity / Node placement to allow a node that is online and has room. If every disk is on Ceph, Node placement can instead make the pin a preference, so it starts on another allowed node when its own cannot take it. Nodes that are off cannot take it until they are back.',
     })
   }
   if (/untolerated taint/i.test(message)) {

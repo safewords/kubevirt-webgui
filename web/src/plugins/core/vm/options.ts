@@ -14,6 +14,8 @@ import PlacementDialog from './PlacementDialog.vue'
 import YamlDialog from './YamlDialog.vue'
 import { disksOf, interfacesOf, validQuantity } from './spec'
 import { updateTemplate, updateVm } from './update'
+import { SOFT_ANNOTATION, STRICT_ANNOTATION, isSoft, strictPlacement } from './placement'
+import type { KObject } from '@/api/types'
 
 export interface OptionRow {
   id: string
@@ -192,10 +194,21 @@ function yamlEditor(field: 'affinity' | 'tolerations', title: string, descriptio
       submit: async (value: unknown) => {
         await updateTemplate(ctx, () => ({ [field]: null }))
         if (value !== null) await updateTemplate(ctx, () => ({ [field]: value }))
+        // Affinity written by hand is taken as the strict placement: soft
+        // placement's saved copy would be stale, so it is switched off.
+        if (field === 'affinity' && isSoft(ctx.object)) {
+          await updateVm(ctx, () => ({ metadata: { annotations: { [SOFT_ANNOTATION]: null, [STRICT_ANNOTATION]: null } } }))
+        }
       },
     })
     if (result) saved(title)
   }
+}
+
+function summarizePlacement(vm: KObject | null | undefined): string {
+  const strict = strictPlacement(vm)
+  const text = summarizeSelector(strict.nodeSelector ?? undefined, { affinity: { nodeAffinity: strict.nodeAffinity } })
+  return isSoft(vm) ? `${text} — preferred; any allowed node when it cannot` : text
 }
 
 function summarizeSelector(selector: Record<string, string> | undefined, spec?: any): string {
@@ -231,7 +244,7 @@ export function optionRows(ctx: ObjectContext): OptionRow[] {
     { id: 'eviction', icon: faPersonWalkingArrowRight, label: 'Eviction strategy', value: spec.evictionStrategy ?? 'cluster default', edit: editEviction },
     { id: 'boot', icon: faListOl, label: 'Boot order', value: bootOrderSummary(spec), edit: (c) => openDialog(BootOrderDialog, { ctx: c }).then((r) => r && saved('Boot order')) },
     { id: 'grace', icon: faHourglassHalf, label: 'Shutdown timeout', value: spec.terminationGracePeriodSeconds !== undefined ? `${spec.terminationGracePeriodSeconds}s` : 'default (180s)', edit: editGrace },
-    { id: 'placement', icon: faLocationDot, label: 'Node placement', value: summarizeSelector(spec.nodeSelector, spec), edit: (c) => openDialog(PlacementDialog, { ctx: c }).then((r) => r && saved('Node placement')) },
+    { id: 'placement', icon: faLocationDot, label: 'Node placement', value: summarizePlacement(vm), edit: (c) => openDialog(PlacementDialog, { ctx: c }).then((r) => r && saved('Node placement')) },
     {
       id: 'affinity',
       icon: faDiagramProject,

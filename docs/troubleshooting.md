@@ -119,7 +119,7 @@ explain themselves there.
 | Cause | What you see |
 |---|---|
 | the disk is not ready | `ErrorPvcNotFound`, `ErrorDataVolumeNotFound`, or a DataVolume still importing |
-| no node matches | `ErrorUnschedulable` with the scheduler's reason — often a node selector or affinity the VM carries from its import |
+| no node matches | `ErrorUnschedulable`; the **Summary** panel explains each of the scheduler's reasons with a remedy, and **Start** is replaced by **Stop** because KubeVirt answers *already running* while the unplaced instance exists. Often a node selector or affinity the VM carries from its import, or a pin to a node that is off or gone — with every disk on Ceph, **Options → Node placement** can make that pin a preference |
 | the node has no virtualisation | nodes without `kubevirt.io/schedulable` are marked in the **Nodes** table |
 | a UEFI guest with no boot entry | it boots to the firmware shell; EFI variables do not survive an import |
 | a BIOS guest with no graphics device | SeaBIOS has nothing to boot from; keep the display for BIOS guests |
