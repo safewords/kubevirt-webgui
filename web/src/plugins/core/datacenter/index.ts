@@ -1,6 +1,6 @@
 /** Datacenter (cluster-wide) screens, grouped like Proxmox's datacenter menu. */
 import {
-  faGaugeHigh, faPuzzlePiece, faServer, faGears, faDatabase, faArrowRightArrowLeft, faCubes, faFolderTree, faUserShield, faScroll, faUserGear,
+  faGaugeHigh, faPuzzlePiece, faServer, faGears, faDatabase, faArrowRightArrowLeft, faCubes, faFolderTree, faUserShield, faScroll, faUserGear, faCircleNodes,
 } from '@fortawesome/free-solid-svg-icons'
 import type { PluginApi } from '@/plugins/registry'
 import DatacenterSummary from './DatacenterSummary.vue'
@@ -8,6 +8,7 @@ import Extensions from './Extensions.vue'
 import NodesPanel from './NodesPanel.vue'
 import OptionsPanel from './OptionsPanel.vue'
 import StoragePanel from './StoragePanel.vue'
+import CephPanel from './CephPanel.vue'
 import MigrationsPanel from './MigrationsPanel.vue'
 import InstanceTypesPanel from './InstanceTypesPanel.vue'
 import NamespacesPanel from './NamespacesPanel.vue'
@@ -23,6 +24,7 @@ export function setupDatacenter(api: PluginApi) {
   api.panel({ id: 'events', kind: 'datacenter', title: 'Events', icon: faScroll, order: 120, group: 'Cluster', component: EventsPanel })
 
   api.panel({ id: 'storage', kind: 'datacenter', title: 'Storage', icon: faDatabase, order: 200, group: 'Storage', component: StoragePanel })
+  api.panel({ id: 'ceph', kind: 'datacenter', title: 'Ceph', icon: faCircleNodes, order: 210, group: 'Storage', requires: ['storage.k8s.io/v1/storageclasses'], component: CephPanel })
 
   api.panel({ id: 'migrations', kind: 'datacenter', title: 'Migrations', icon: faArrowRightArrowLeft, order: 300, group: 'Virtualization', requires: ['kubevirt.io/v1/virtualmachineinstancemigrations'], component: MigrationsPanel })
   api.panel({ id: 'instancetypes', kind: 'datacenter', title: 'Instance Types', icon: faCubes, order: 310, group: 'Virtualization', requires: ['instancetype.kubevirt.io'], component: InstanceTypesPanel })

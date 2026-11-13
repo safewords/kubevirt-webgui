@@ -5,7 +5,7 @@ type: application
 
 # The chart is versioned independently of the application: `version` is the
 # chart's own, `appVersion` the image tag it defaults to.
-version: 0.1.0
+version: 0.1.1
 appVersion: "0.1.0"
 
 home: https://github.com/safewords/kubevirt-webgui

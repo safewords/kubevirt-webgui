@@ -43,6 +43,10 @@ pub struct Settings {
     /// Proxmox VE hosts the importer may connect to over SSH: host names,
     /// addresses, CIDR ranges, or `*`. Empty: importing is off.
     pub proxmox_allowed_hosts: Vec<String>,
+    /// The Ceph manager's Prometheus endpoints (`http://host:9283/metrics`),
+    /// tried in turn since only the active manager answers. Empty: the Ceph
+    /// panel shows what Kubernetes knows, and how to turn this on.
+    pub ceph_metrics_urls: Vec<String>,
 }
 
 fn list(env: &Env, key: &str) -> Vec<String> {
@@ -71,6 +75,7 @@ impl Settings {
             disabled_extensions: list(env, "GUI_DISABLED_EXTENSIONS"),
             max_frame_bytes: env.int("GUI_MAX_FRAME_BYTES", 16 * 1024 * 1024).max(64 * 1024) as usize,
             proxmox_allowed_hosts: list(env, "PROXMOX_ALLOWED_HOSTS"),
+            ceph_metrics_urls: list(env, "CEPH_METRICS_URLS"),
         }
     }
 }

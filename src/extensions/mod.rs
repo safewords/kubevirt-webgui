@@ -7,6 +7,7 @@
 //! back.
 
 pub mod atomic_usb;
+pub mod ceph;
 pub mod clone_access;
 pub mod core;
 pub mod datavolumes;
@@ -30,6 +31,7 @@ pub fn builtin() -> Vec<Box<dyn Extension>> {
         Box::new(metrics::Metrics),
         Box::new(atomic_usb::AtomicUsb),
         Box::new(proxmox::Proxmox),
+        Box::new(ceph::Ceph),
     ]
 }
 

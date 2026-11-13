@@ -92,6 +92,10 @@ spec:
             - name: PROXMOX_ALLOWED_HOSTS
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.ceph.metricsUrls }}
+            - name: CEPH_METRICS_URLS
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

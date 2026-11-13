@@ -100,6 +100,16 @@ proxmox:
   #  - 10.0.0.0/24
   #  - pve.example.com
 
+# An external Ceph cluster's state on the Datacenter → Ceph panel. The panel
+# always shows what Kubernetes knows (CSI driver, classes, RBD images); these
+# add health, OSDs, pools and capacity from the Ceph manager's prometheus
+# module (`ceph mgr module enable prometheus`). List every manager host: only
+# the active one answers. Plain read-only HTTP, no key.
+ceph:
+  metricsUrls: []
+  #  - http://10.0.4.2:9283/metrics
+  #  - http://10.0.4.3:9283/metrics
+
 # Browser plugins loaded at runtime, in addition to the built-in ones. URLs are
 # fetched by the browser; a path is served by this server itself.
 plugins:

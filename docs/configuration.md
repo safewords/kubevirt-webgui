@@ -10,6 +10,7 @@ for local runs.
 - [Authentication](#authentication)
 - [The GUI](#the-gui)
 - [Proxmox import](#proxmox-import)
+- [Ceph](#ceph)
 - [Helm values](#helm-values)
 
 ## Application
@@ -92,6 +93,16 @@ to whatever a signed-in user names, so the allow-list decides where the server
 can be pointed. `*` means anywhere the pod's network reaches, including
 services that are not Proxmox. See [importing from Proxmox](features/proxmox-import.md#the-allow-list).
 
+## Ceph
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CEPH_METRICS_URLS` | — | Comma-separated Prometheus endpoints of the Ceph managers, e.g. `http://10.0.4.2:9283/metrics`. Tried in turn, since only the active manager answers. Empty: the [Ceph panel](features/datacenter.md#ceph) shows only what Kubernetes knows. |
+
+The endpoints are the manager's `prometheus` module (`ceph mgr module enable
+prometheus`): plain read-only HTTP, no key. They are fetched by the server, not
+the browser, and only from this list.
+
 ## Helm values
 
 The chart maps one-to-one onto the variables above. The full list with comments
@@ -114,6 +125,7 @@ these are the ones most installs touch.
 | `settings.kubeContext` / `settings.kubeApiServer` | `""` | `KUBE_CONTEXT` / `KUBE_API_SERVER` |
 | `plugins.urls` / `plugins.directory` | `[]` / `""` | `GUI_PLUGIN_URLS` / `GUI_PLUGIN_DIR` |
 | `proxmox.allowedHosts` | `[]` | `PROXMOX_ALLOWED_HOSTS` |
+| `ceph.metricsUrls` | `[]` | `CEPH_METRICS_URLS` |
 | `extraEnv` | `[]` | anything else, including `RUST_LOG` |
 | `netagent.enabled` | `false` | installs the [off-subnet client NAT](features/networking.md#off-subnet-client-nat) node agent: a DaemonSet, its ServiceAccount and a ClusterRole reading VMIs |
 | `netagent.image.repository` / `.tag` | `ghcr.io/safewords/kubevirt-webgui-netagent` / chart `appVersion` | — |

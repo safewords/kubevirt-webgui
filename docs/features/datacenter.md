@@ -11,6 +11,7 @@ when the cluster does not serve the API it needs.
 - [Options](#options)
 - [Events](#events)
 - [Storage](#storage)
+- [Ceph](#ceph)
 - [Networks](#networks)
 - [Migrations](#migrations)
 - [Instance Types](#instance-types)
@@ -34,6 +35,7 @@ touching the GUI (see [browser plugins](../extending/browser-plugins.md)).
 | **Options** | Cluster | — | core |
 | **Events** | Cluster | — | core |
 | **Storage** | Storage | — | core |
+| **Ceph** | Storage | `storage.k8s.io/v1/storageclasses`; cluster health needs `CEPH_METRICS_URLS` | core, `ceph` extension |
 | **Networks** | Network | — | core (network plugin) |
 | **Migrations** | Virtualization | `kubevirt.io/v1/virtualmachineinstancemigrations` | core |
 | **Instance Types** | Virtualization | `instancetype.kubevirt.io` | core |
@@ -210,6 +212,29 @@ When the cluster does not serve `snapshot.storage.k8s.io` the panel says so
 plainly, because that is the reason VM snapshots cannot capture disk contents.
 Claims and provisioned capacity count only the disks the user can see. See
 [storage](storage.md) for disks themselves.
+
+## Ceph
+
+For clusters whose disks live on an external Ceph cluster through ceph-csi.
+Kubernetes sees Ceph only through the CSI driver, so the panel has two halves.
+
+**Ceph cluster** comes from the Ceph manager's `prometheus` module, fetched by
+the server from `CEPH_METRICS_URLS` (see [configuration](../configuration.md#ceph))
+and refreshed every 15 s: overall health and each raised check, explained for
+the common ones (`OSD_DOWN`, `PG_DEGRADED`, `PG_AVAILABILITY`, `SLOW_OPS`…);
+monitors in quorum; OSDs up/in with host, device class and fill; raw capacity;
+every pool with what it stores, what is free and which storage classes use it;
+and placement-group states other than active+clean. Without the setting, the
+section says how to turn it on — one `ceph mgr module enable prometheus` and
+the manager hosts' URLs, prefilled from ceph-csi's monitor list.
+
+**What Kubernetes knows** needs nothing extra:
+
+| Section | Shows |
+|---|---|
+| Storage classes on Ceph | classes on `rbd.csi.ceph.com` / `cephfs.csi.ceph.com`, their pool, cluster ID and monitors (from ceph-csi's `ceph-csi-config` ConfigMap) |
+| CSI driver | every `app=ceph-csi-rbd` / `app=ceph-csi-cephfs` pod by node, readiness, restarts and the last restart; warns of a ready VM node with no running node plugin (VMs with Ceph disks cannot start there) and of a plugin restarting over and over |
+| Disks on Ceph | every PersistentVolume on a Ceph driver: its claim, the VM using it (TPM/EFI state included), `pool/image`, size, access modes, and the node it is attached to from VolumeAttachments |
 
 ## Networks
 
