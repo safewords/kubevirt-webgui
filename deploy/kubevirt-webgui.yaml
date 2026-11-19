@@ -44,8 +44,6 @@ spec:
       serviceAccountName: kubevirt-webgui
       # Mounted only for the API server's address and CA; the token grants nothing.
       automountServiceAccountToken: true
-      imagePullSecrets:
-        - name: regcred
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -54,8 +52,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: kubevirt-webgui
-          image: oci-registry.safewords.com/kubevirt-webgui:20260916213149
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/safewords/kubevirt-webgui:main
+          imagePullPolicy: Always
           args: ["serve", "--host=0.0.0.0", "--port=8006"]
           ports:
             - name: http
